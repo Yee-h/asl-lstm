@@ -7,7 +7,7 @@ import multiprocessing
 
 
 # ================= 路径配置 =================
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 数据集根目录
 DATASET_PATH = os.path.join(PROJECT_ROOT, 'dataset')
@@ -37,7 +37,7 @@ MP_MODEL_COMPLEXITY = 1
 
 # ================= 硬件与性能 =================
 # 自动检测CPU核心数，保留2个核给系统，防止死机
-# 你的 Ryzen 7 8845H 有 16 个逻辑线程，这里建议设为 12-14
+# Ryzen 7 8845H 有 16 个逻辑线程，这里建议设为 12-14
 NUM_WORKERS = max(1, multiprocessing.cpu_count() - 2)
 
 # 是否使用多进程预处理数据
@@ -48,26 +48,29 @@ CHUNK_SIZE = 1
 
 # 数据处理数量限制 (None 或 'all' 表示处理所有，整数表示只处理前 N 个)
 # 用于快速测试代码逻辑
-DATA_LIMIT = None
+DATA_LIMIT = 1
 
 # ================= 数据维度 =================
 # 关键点数量 (Holistic 模式)
-# 左手 21 + 右手 21 + 姿态 33 = 75 个点 (根据需求调整)
-# 这里我们只取：Pose(33) + Left Hand(21) + Right Hand(21)
-# 注意：实际输出向量长度取决于你是否展平 (Flatten)
+# 左手 21 + 右手 21 + 姿态 33 = 75 个点
+# 输出特征向量: Pose(33*3) + Left Hand(21*3) + Right Hand(21*3) = 225 维
 
 # 单手关键点数量
 HAND_LANDMARKS_NUM = 21
-# 姿态关键点数量
+# 姿态关键点数量 (MediaPipe Pose 完整输出)
 POSE_LANDMARKS_NUM = 33
 # 每个关键点的坐标维度 (x, y, z)
 LANDMARK_DIM = 3
+
 # 左手特征维度: 21 * 3 = 63
 LEFT_HAND_FEATURE_DIM = HAND_LANDMARKS_NUM * LANDMARK_DIM
 # 右手特征维度: 21 * 3 = 63
 RIGHT_HAND_FEATURE_DIM = HAND_LANDMARKS_NUM * LANDMARK_DIM
-# 总特征维度: 左手 + 右手 = 126 (可扩展加入姿态)
-TOTAL_FEATURE_DIM = LEFT_HAND_FEATURE_DIM + RIGHT_HAND_FEATURE_DIM
+# 姿态特征维度: 33 * 3 = 99
+POSE_FEATURE_DIM = POSE_LANDMARKS_NUM * LANDMARK_DIM
+
+# 总特征维度: 左手(63) + 右手(63) + 姿态(99) = 225
+TOTAL_FEATURE_DIM = LEFT_HAND_FEATURE_DIM + RIGHT_HAND_FEATURE_DIM + POSE_FEATURE_DIM
 
 # ================= 视频处理配置 =================
 # 支持的视频格式
@@ -79,4 +82,4 @@ ENABLE_RESUME = True
 # ================= 日志配置 =================
 # 是否保存错误日志
 SAVE_ERROR_LOG = True
-ERROR_LOG_PATH = os.path.join(PROJECT_ROOT, 'preprocessing_errors.log')
+ERROR_LOG_PATH = os.path.join(PROJECT_ROOT, 'logs','preprocessing_errors.log')

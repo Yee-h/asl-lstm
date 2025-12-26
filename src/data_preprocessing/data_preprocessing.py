@@ -8,8 +8,12 @@
 5. 支持多进程加速和断点续传
 """
 
-import os
 import sys
+import os
+
+# 将 src 目录添加到 path 中以支持导入 config
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import csv
 import json
 import numpy as np
@@ -17,7 +21,14 @@ from multiprocessing import Pool, freeze_support, cpu_count
 from functools import partial
 from tqdm import tqdm
 import config as cfg
-import utils
+
+# Windows 多进程 (spawn) 模式下，子进程会重新导入模块
+# 使用 try/except 处理不同的导入场景
+try:
+    from data_preprocessing import extract_keypoints
+except ImportError:
+    # 作为包内模块直接运行时的 fallback
+    import extract_keypoints
 
 # 修复 Windows 控制台中文乱码问题
 if sys.platform == 'win32':
@@ -107,7 +118,7 @@ def process_single_video(args: tuple) -> dict:
             return result
         
         # 核心特征提取
-        npy_data = utils.extract_features_from_video(video_path)
+        npy_data = extract_keypoints.extract_features(video_path)
         
         if npy_data is None or len(npy_data) == 0:
             result['status'] = 'Error'
