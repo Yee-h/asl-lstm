@@ -82,4 +82,41 @@ ENABLE_RESUME = True
 # ================= 日志配置 =================
 # 是否保存错误日志
 SAVE_ERROR_LOG = True
-ERROR_LOG_PATH = os.path.join(PROJECT_ROOT, 'logs','preprocessing_errors.log')
+ERROR_LOG_PATH = os.path.join(PROJECT_ROOT, 'logs', 'preprocessing_errors.log')
+
+# ================= 模型训练配置 =================
+# 训练超参数
+BATCH_SIZE = 32
+LEARNING_RATE = 1e-4  # 初始学习率
+NUM_EPOCHS = 50  # 训练轮数
+WEIGHT_DECAY = 1e-5  # L2正则化系数
+
+# 模型架构参数
+HIDDEN_DIM = 256  # LSTM 隐藏层维度
+NUM_LAYERS = 2  # LSTM 层数
+DROPOUT = 0.5  # Dropout 概率
+
+# 学习率调度器配置
+LR_SCHEDULER_FACTOR = 0.5  # LR衰减因子
+LR_SCHEDULER_PATIENCE = 5  # 验证集Loss不下降的容忍轮数
+
+# 模型保存路径
+MODEL_SAVE_DIR = os.path.join(PROJECT_ROOT, 'src', 'checkpoints')
+BEST_MODEL_PATH = os.path.join(MODEL_SAVE_DIR, 'best_model.pth')
+VOCAB_PATH = os.path.join(MODEL_SAVE_DIR, 'vocab.json')
+
+# DataLoader 配置
+NUM_DATALOADER_WORKERS = 2  # DataLoader 工作线程数
+
+# ================= 实时推理配置 =================
+# 滑动窗口配置
+SLIDING_WINDOW_SIZE = 30  # 窗口大小（帧数）
+PREDICTION_THRESHOLD = 0.8  # 预测置信度阈值
+DEBOUNCE_FRAMES = 5  # 防抖动：连续N帧才确认
+COOLDOWN_FRAMES = 15  # 冷却：识别一个词后的等待帧数
+
+# 摄像头配置
+CAMERA_INDEX = 0  # 默认摄像头索引
+CAMERA_WIDTH = 640
+CAMERA_HEIGHT = 480
+CAMERA_FPS = 30
