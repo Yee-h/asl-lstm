@@ -1,37 +1,54 @@
-#用于在训练过程中评估模型在 Dev 集上的表现。
-
 import torch
+import torch.nn as nn
+import sys
+import os
 from tqdm import tqdm
 
-def validate(model, dataloader, criterion, device):
+# Add src to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import src.config as cfg
+
+def validate(model, val_loader, criterion, device):
     """
-    验证模型性能
+    在验证集或测试集上评估模型性能。
+    
+    Args:
+        model (nn.Module): 待评估的模型。
+        val_loader (DataLoader): 验证集的数据加载器。
+        criterion (loss): 损失函数。
+        device (torch.device): 计算设备 (CPU 或 GPU)。
+        
     Returns:
-        avg_loss: 平均损失
-        accuracy: 准确率 (0.0 - 1.0)
+        epoch_loss (float): 平均损失。
+        accuracy (float): 分类准确率 (%)。
     """
-    model.eval() # 切换到评估模式 (关闭 Dropout)
+    model.eval() # 设置模型为评估模式 (关闭 Dropout 和 Batch Normalization)
     running_loss = 0.0
     correct = 0
     total = 0
     
-    with torch.no_grad(): # 不计算梯度，节省显存
-        for inputs, labels, lengths in dataloader:
+    # 评估过程中不需要计算梯度，节省内存和计算资源
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            # 迁移数据到设备
             inputs = inputs.to(device)
             labels = labels.to(device)
-            # lengths 留在 CPU 上，因为 pack_padded_sequence 需要 CPU tensor
             
-            outputs = model(inputs, lengths)
+            # --- 前向传播 ---
+            outputs = model(inputs)
             loss = criterion(outputs, labels)
             
+            # --- 统计指标 ---
             running_loss += loss.item() * inputs.size(0)
-            
-            # 计算准确率
-            _, predicted = torch.max(outputs, 1)
+            _, predicted = torch.max(outputs.data, 1) # 获取预测结果
             total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+            correct += (predicted == labels).sum().item() # 累计预测正确的数量
             
-    avg_loss = running_loss / total
-    accuracy = correct / total
+    # 计算平均指标
+    epoch_loss = running_loss / total
+    accuracy = 100 * correct / total
     
-    return avg_loss, accuracy
+    return epoch_loss, accuracy
+
+if __name__ == "__main__":
+    print("This script is intended to be imported by train_lstm.py")

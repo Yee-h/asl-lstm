@@ -1,66 +1,76 @@
-#实现核心的 BiLSTM，使用 pack_padded_sequence 忽略填充帧。
-
 import torch
 import torch.nn as nn
-from torch.nn.utils.rnn import pack_padded_sequence
+import sys
+import os
 
-class CSL_BiLSTM(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_classes, num_layers=2, dropout=0.5):
-        super(CSL_BiLSTM, self).__init__()
+# Add src to path if needed (though running as module is preferred)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import src.config as cfg
+
+class BiLSTM(nn.Module):
+    """
+    双向 LSTM 网络模型，用于手语识别序列分类。
+    """
+    def __init__(self, input_size=cfg.INPUT_SIZE, hidden_size=cfg.HIDDEN_SIZE, num_layers=cfg.NUM_LAYERS, num_classes=cfg.NUM_CLASSES, dropout=cfg.DROPOUT):
+        """
+        初始化模型层。
         
-        self.hidden_dim = hidden_dim
+        Args:
+            input_size (int): 输入特征维度 (每帧的关键点坐标数)。
+            hidden_size (int): LSTM 隐藏层状态的维度。
+            num_layers (int): LSTM 的层数。
+            num_classes (int): 分类任务的类别总数。
+            dropout (float): Dropout 概率，用于防止过拟合。
+        """
+        super(BiLSTM, self).__init__()
+        self.hidden_size = hidden_size
         self.num_layers = num_layers
+        self.bidirectional = cfg.BIDIRECTIONAL
         
-        # 1. 降维层 (FC): 225 -> 128
-        # 减少参数量，提取紧凑特征
-        self.fc_in = nn.Sequential(
-            nn.Linear(input_dim, 128),
-            nn.ReLU(),
-            nn.Dropout(dropout)
-        )
+        # 定义 LSTM 层
+        # batch_first=True 表示输入数据的维度顺序为 (batch, seq, feature)
+        # bidirectional=True 使用双向 LSTM，能够同时利用过去和未来的上下文信息
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, 
+                            batch_first=True, 
+                            bidirectional=self.bidirectional, 
+                            dropout=dropout if num_layers > 1 else 0)
         
-        # 2. BiLSTM 层
-        self.lstm = nn.LSTM(
-            input_size=128, 
-            hidden_size=hidden_dim,
-            num_layers=num_layers,
-            batch_first=True,
-            bidirectional=True,
-            dropout=dropout if num_layers > 1 else 0
-        )
+        # 全连接层输入维度：如果是双向 LSTM，则为 hidden_size * 2
+        fc_input_dim = hidden_size * 2 if self.bidirectional else hidden_size
         
-        # 3. 分类层
-        # 输入维度: hidden_dim * 2 (双向)
-        self.fc_out = nn.Linear(hidden_dim * 2, num_classes)
+        # 输出层：将 LSTM 的输出映射到类别空间
+        self.fc = nn.Linear(fc_input_dim, num_classes)
         
-    def forward(self, x, lengths):
-        # x: (Batch, Max_Len, Feature_Dim)
-        # lengths: (Batch,) 真实长度
+    def forward(self, x):
+        """
+        前向传播计算。
         
-        # 1. 降维
-        x = self.fc_in(x)
+        Args:
+            x (torch.Tensor): 输入张量，形状为 (batch_size, seq_len, input_size)
+            
+        Returns:
+            torch.Tensor: 输出得分，形状为 (batch_size, num_classes)
+        """
+        # x shape: (batch_size, seq_len, input_size)
         
-        # 2. 打包 (Masking Padding)
-        # enforce_sorted=False 允许数据不按长度排序
-        packed_x = pack_padded_sequence(x, lengths.cpu(), batch_first=True, enforce_sorted=False)
+        # LSTM 前向传播
+        # out 形状: (batch, seq_len, num_directions * hidden_size)
+        # 我们忽略了最终的隐藏状态 _ (h_n, c_n)
+        out, _ = self.lstm(x)
         
-        # 3. LSTM 前向传播
-        # self.lstm 输出: packed_output, (h_n, c_n)
-        _, (h_n, _) = self.lstm(packed_x)
+        # 特征聚合策略：平均池化 (Mean Pooling)
+        # 对时间维度 (dim=1) 求平均，这有助于捕获整个序列的信息，
+        # 并且相比于取最后一帧，对填充 (Padding) 的零向量更鲁棒。
+        out = torch.mean(out, dim=1)
         
-        # 4. 提取特征
-        # h_n shape: (num_layers * 2, batch, hidden_dim)
-        # 我们需要取最后一层 (last layer) 的 正向(forward) 和 反向(backward) 状态
-        
-        # view: [layers, directions, batch, hidden]
-        h_n = h_n.view(self.num_layers, 2, x.size(0), self.hidden_dim)
-        
-        # 取最后一层: h_n[-1] -> shape (2, batch, hidden)
-        # 拼接两个方向: forward (idx 0) + backward (idx 1)
-        final_hidden = torch.cat((h_n[-1, 0], h_n[-1, 1]), dim=1) 
-        # final_hidden shape: (Batch, hidden_dim * 2)
-        
-        # 5. 分类
-        out = self.fc_out(final_hidden)
-        
+        # 通过全连接层得到分类预测
+        out = self.fc(out)
         return out
+
+if __name__ == "__main__":
+    # Test the model
+    model = BiLSTM()
+    print(model)
+    dummy_input = torch.randn(32, 110, 270)
+    output = model(dummy_input)
+    print("Output shape:", output.shape)
