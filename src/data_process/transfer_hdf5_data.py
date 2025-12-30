@@ -33,14 +33,14 @@ class CONFIG:
     """配置参数 - 用户可以根据需要修改这些值"""
     
     # 数据集规模：100、300 或 2000
-    DATASET_SCALE: str = "100"
+    DATASET_SCALE: str = "2000"
     
     # 数据迁移百分比（0.0 ~ 1.0）
     # 例如：0.5 表示将 50% 的数据从源文件复制到目标文件
-    TRANSFER_PERCENTAGE: float = 1.0
+    TRANSFER_PERCENTAGE: float = 0.5
     
     # 源文件的数据集划分：Train、Val 或 Test
-    SOURCE_SPLIT: str = "Val"
+    SOURCE_SPLIT: str = "Test"
     
     # 目标文件的数据集划分：Train、Val 或 Test
     TARGET_SPLIT: str = "Train"

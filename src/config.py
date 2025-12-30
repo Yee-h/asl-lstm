@@ -19,6 +19,9 @@ TEST_DATA_PATH = os.path.join(PROCESSED_DATA_DIR, f"WLASL{DATASET_SCALE}_135-Tes
 MODEL_SAVE_DIR = os.path.join(PROJECT_ROOT, "src", "checkpoints")
 os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
 
+# 测试/评估时使用的模型路径
+TEST_MODEL_PATH = os.path.join(MODEL_SAVE_DIR, "best_model.pth")
+
 # --- 数据处理配置 ---
 # 序列最大帧数 (超出截断，不足补零)
 MAX_FRAMES = 110

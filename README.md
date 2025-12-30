@@ -1,19 +1,19 @@
-# CSL-LSTM: 中国手语识别项目 (Chinese Sign Language Recognition)
+# ASL-LSTM: 美国手语识别项目 (American Sign Language Recognition)
 
 [![Python](https://img.shields.io/badge/Python-3.10-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.5.1-red.svg)](https://pytorch.org/)
 [![MediaPipe](https://img.shields.io/badge/MediaPipe-0.10.9-green.svg)](https://mediapipe.dev/)
 
-本项目实现了基于 **BiLSTM** 的中国手语识别系统，采用 **双管道架构**（离线训练 + 在线推理），支持从视频数据集训练模型到实时摄像头识别的完整流程。
+本项目实现了基于 **BiLSTM** 的手语识别系统，采用 **双管道架构**（离线训练 + 在线推理），支持从视频数据集训练模型到实时摄像头识别的完整流程。
 
-## 🎯 核心特性
+## 核心特性
 
 ### 架构设计
 
 - **管道A（离线训练流水线）**：
   - 批量处理视频数据集，生成高效 **HDF5** 格式特征文件
   - MediaPipe Holistic 提取 **135个关键点** (Body25 + Hand42 + Face68)
-  - 改进的 **3D** 坐标归一化算法（鼻尖原点 + 肩宽缩放 + Z轴深度保留）
+  - 改进的 **3D** 坐标归一化算法（鼻尖原点 + 肩宽缩放）
   - 多进程加速 + 断点续传
   - BiLSTM 模型训练
 
@@ -33,25 +33,24 @@
 - ✅ **配置集中化**：所有参数统一在 `config.py` 管理
 - ✅ **GPU 加速**：支持 CUDA 12.1 训练与推理
 
-## 📂 项目结构
+##  项目结构
 
 ```
-csl-lstm/
+asl-lstm/
 ├── src/                           # 源代码
-│   ├── config.py                  # 🔧 全局配置（支持 WLASL100/300/2000 切换）
-│   ├── utils.py                   # 工具函数
-│   ├── data_preprocessing/        # 数据预处理
-│   │   ├── extract_keypoints.py   # MediaPipe (Body+Hand+Face) 提取
-│   │   ├── normalize.py           # 归一化 (Map to OpenPose Format)
-│   │   ├── mappings.py            # MediaPipe 到 OpenPose/Dlib 的映射索引
-│   │   └── data_preprocessing.py  # 预处理主流程 (生成 WLASL 格式 .hdf5)
+│   ├── config.py                  # 全局配置（支持 WLASL100/300/2000 切换）
+│   ├── data_process/              # 数据处理
+│   │   ├── preprocess_wlasl.py    # 预处理主流程 (生成 WLASL 格式 .hdf5)
+│   │   ├── transfer_hdf5_data.py  # 数据迁移工具 (Val/Test -> Train)
+│   │   ├── analyze_frames.py      # 帧数分析
+│   │   ├── count_dataset_samples.py # 样本统计
+│   │   └── read_data_struct.py    # HDF5 结构查看
 │   ├── model/                     # 模型训练与评估
 │   │   ├── model_lstm.py          # BiLSTM 模型定义
-│   │   ├── padding.py             # DataLoader (支持 HDF5 读取)
+│   │   ├── dataloader.py          # DataLoader (支持 HDF5 读取)
 │   │   ├── train_lstm.py          # 训练主流程
 │   │   ├── validate_lstm.py       # 验证函数
-│   │   ├── evaluate.py            # 测试集评估
-│   │   └── realtime_inference.py  # 实时推理
+│   │   └── evaluate.py            # 测试集评估
 │   ├── checkpoints/               # [生成] 模型权重
 │   │   ├── best_model.pth
 │   │   └── vocab.json
@@ -75,7 +74,7 @@ csl-lstm/
 └── README.md                      # 本文档
 ```
 
-## 🛠️ 环境配置
+##  环境配置
 
 ### 系统要求
 
@@ -90,7 +89,7 @@ csl-lstm/
 ```bash
 # 1. 克隆项目
 git clone <repository_url>
-cd csl-lstm
+cd asl-lstm
 
 # 2. 同步依赖
 uv sync
@@ -99,10 +98,16 @@ uv sync
 uv run python src/test/gpu_cuda_check.py
 ```
 
-## 📖 使用指南
+##  使用指南
 
-### 步骤 1: 数据配置
+### 步骤 1: 数据下载与配置
 
+#### 数据集下载
+本项目使用WLASL (World Level American Sign Language) Video数据集。
+官方下载地址：[WLASL](https://dxli94.github.io/WLASL/)
+Kaggle下载地址：[WLASL](https://www.kaggle.com/datasets/risangbaskoro/wlasl-processed?select=videos)
+
+#### 数据集配置
 在 `src/config.py` 中修改 `DATASET_SCALE` 来选择使用的数据集规模：
 ```python
 # 可选: 100, 300, 2000
@@ -115,7 +120,7 @@ DATASET_SCALE = 100
 
 ```bash
 # 使用 UV 运行
-uv run python src/data_preprocessing/data_preprocessing.py
+uv run python src/data_process/preprocess_wlasl.py
 ```
 
 **预期输出**：
@@ -167,7 +172,7 @@ MAX_FRAMES = 110 (超长截断)
 2. **尺度**: 左右肩宽 (Shoulder Width)
 3. **映射**: 将 MediaPipe 的 dense output 映射到 OpenPose Body 25 和 simplified Face 68 格式。
 
-## 📊 数据集格式 (HDF5)
+## 数据集格式 (HDF5)
 
 **文件**: `dataset/processed/WLASL100/WLASL100_135-Train.hdf5`
 
@@ -180,23 +185,4 @@ MAX_FRAMES = 110 (超长截断)
     - `action_id`: Label ID (e.g., 0)
     - `frame_count`: Number of frames
 
-## ⚠️ 常见问题
-
-### 1. 为什么改为 HDF5？
-HDF5 适合存储大规模矩阵数据，比成千上万个 `.npy` 小文件读取更快，且方便管理和传输。
-
-### 2. 为什么加入 Z 轴？
-虽然 2D 坐标足以描述大部分手形，但 Z 轴提供了相对深度信息（手在脸前还是脸后），有助于区分某些遮挡严重的复杂手语动作。
-
-### 3. 如何查看 HDF5 内容？
-可以使用 `HDFView` 工具或 Python 代码：
-```python
-import h5py
-# 根据实际路径修改
-with h5py.File('dataset/processed/WLASL100/WLASL100_135-Train.hdf5', 'r') as f:
-    print(list(f.keys())[:5])
-    vid = list(f.keys())[0]
-    print(f[vid]['data'].shape)
-    print(f[vid].attrs['label'])
-```
 
