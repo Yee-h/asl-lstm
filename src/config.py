@@ -39,7 +39,7 @@ NUM_LAYERS = 2
 # 是否使用双向 LSTM
 BIDIRECTIONAL = True
 # 随机丢弃率 (Dropout)
-DROPOUT = 0.5
+DROPOUT = 0.6
 
 # --- 训练超参数 ---
 # 批处理大小
@@ -47,6 +47,6 @@ BATCH_SIZE = 32
 # 学习率
 LEARNING_RATE = 1e-3
 # 训练轮数
-NUM_EPOCHS = 200
+NUM_EPOCHS = 100
 # 训练设备 (程序中会自动检查 GPU 可用性)
 DEVICE = 'cuda'

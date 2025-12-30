@@ -15,7 +15,7 @@ class CSLDataset(Dataset):
     """
     手语识别数据集类，负责加载 HDF5 格式的特征数据和相应的标签。
     """
-    def __init__(self, hdf5_path, label_map_path, max_frames=cfg.MAX_FRAMES):
+    def __init__(self, hdf5_path, label_map_path, max_frames=cfg.MAX_FRAMES, augment=False):
         """
         初始化数据集。
         
@@ -23,8 +23,10 @@ class CSLDataset(Dataset):
             hdf5_path (str): HDF5 数据文件的路径。
             label_map_path (str): 标签映射 JSON 文件的路径。
             max_frames (int): 序列的最大帧数，用于统一输入长度。
+            augment (bool): 是否启用数据增强（随机旋转和缩放）。
         """
         self.max_frames = max_frames
+        self.augment = augment
         
         # --- 加载标签映射表 ---
         with open(label_map_path, 'r', encoding='utf-8') as f:
@@ -50,17 +52,28 @@ class CSLDataset(Dataset):
         with h5py.File(hdf5_path, 'r') as f:
             keys = list(f.keys())
             for key in keys:
-                group = f[key]
+                item = f[key]
+                
+                # 确保 item 是 Group 类型
+                if not isinstance(item, h5py.Group):
+                    continue
+                
+                group = item
                 
                 # 检查是否存在必要的数据键
-                if 'data' not in group or 'label' not in group:
+                if 'data' not in group.keys() or 'label' not in group.keys():
                     continue
                     
                 # 读取特征数据 (Frames, 2, 135)
-                feature = group['data'][:]
+                data_item = group['data']
+                feature = np.array(data_item)
                 
                 # 读取并处理标签字符串
-                label_raw = group['label'][()]
+                label_dataset = group['label']
+                if isinstance(label_dataset, h5py.Dataset):
+                    label_raw = label_dataset[()]
+                else:
+                    continue
                 if isinstance(label_raw, bytes):
                     label_str = label_raw.decode('utf-8')
                 else:
@@ -88,6 +101,10 @@ class CSLDataset(Dataset):
         # 从内存缓存中读取
         data, label_id = self.data_cache[idx]
         
+        # --- 数据增强：随机旋转和缩放 ---
+        if self.augment:
+            data = self._apply_augmentation(data)
+        
         # --- 数据预处理 ---
         # 展平特征：(Frames, 2, 135) -> (Frames, 270)
         data = data.reshape(data.shape[0], -1)
@@ -106,14 +123,63 @@ class CSLDataset(Dataset):
         data_tensor = torch.tensor(data, dtype=torch.float32)
         
         return data_tensor, label_id
+    
+    def _apply_augmentation(self, data):
+        """
+        应用随机旋转和缩放的坐标变换。
+        
+        Args:
+            data (np.ndarray): 形状为 (Frames, 2, 135) 的特征数据。
+                              第二维的 0 是 X 坐标，1 是 Y 坐标。
+        
+        Returns:
+            np.ndarray: 变换后的特征数据，形状不变。
+        """
+        # 随机旋转角度：-15° 到 +15°
+        angle = np.random.uniform(-15, 15)
+        theta = np.radians(angle)
+        
+        # 随机缩放因子：0.9 到 1.1
+        scale = np.random.uniform(0.9, 1.1)
+        
+        # 构建旋转矩阵
+        cos_theta = np.cos(theta)
+        sin_theta = np.sin(theta)
+        rotation_matrix = np.array([
+            [cos_theta, -sin_theta],
+            [sin_theta, cos_theta]
+        ])
+        
+        # 应用缩放和旋转变换
+        # data 形状: (Frames, 2, 135)
+        # 对每一帧的所有关键点应用相同的变换
+        transformed_data = data.copy()
+        
+        for frame_idx in range(data.shape[0]):
+            # 提取当前帧的所有关键点坐标 (2, 135)
+            frame_coords = data[frame_idx]  # shape: (2, 135)
+            
+            # 转置为 (135, 2) 以便进行矩阵乘法
+            coords_transposed = frame_coords.T  # shape: (135, 2)
+            
+            # 应用缩放
+            coords_scaled = coords_transposed * scale
+            
+            # 应用旋转：(135, 2) @ (2, 2)^T = (135, 2)
+            coords_rotated = coords_scaled @ rotation_matrix.T
+            
+            # 转置回 (2, 135) 并保存
+            transformed_data[frame_idx] = coords_rotated.T
+        
+        return transformed_data
 
 def get_dataloaders():
     """
     创建并返回训练、验证和测试数据加载器。
     """
-    train_dataset = CSLDataset(cfg.TRAIN_DATA_PATH, cfg.LABEL_MAP_PATH)
-    val_dataset = CSLDataset(cfg.VAL_DATA_PATH, cfg.LABEL_MAP_PATH)
-    test_dataset = CSLDataset(cfg.TEST_DATA_PATH, cfg.LABEL_MAP_PATH)
+    train_dataset = CSLDataset(cfg.TRAIN_DATA_PATH, cfg.LABEL_MAP_PATH, augment=True)
+    val_dataset = CSLDataset(cfg.VAL_DATA_PATH, cfg.LABEL_MAP_PATH, augment=False)
+    test_dataset = CSLDataset(cfg.TEST_DATA_PATH, cfg.LABEL_MAP_PATH, augment=False)
     
     # 在 Windows 系统上，num_workers 设置为 0 通常更稳定
     train_loader = DataLoader(train_dataset, batch_size=cfg.BATCH_SIZE, shuffle=True, num_workers=0)

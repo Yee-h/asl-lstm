@@ -3,9 +3,18 @@ import torch.nn as nn
 import torch.optim as optim
 import sys
 import os
-from tqdm import tqdm
 import time
+import io
 import matplotlib.pyplot as plt
+from tqdm import tqdm
+
+#修复 Windows 终端中文乱码和进度条问题
+if sys.platform == 'win32':
+    # 设置标准输出和错误为 UTF-8 编码
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    # 启用 Windows 终端的 ANSI 转义序列支持（用于 tqdm 进度条）
+    os.system('')
 
 # 检查是否可以绘图，否则使用非交互式后端
 try:
@@ -44,8 +53,15 @@ def train():
     # 使用 Adam 优化器，学习率从配置文件获取 (移除 L2 正则化以减轻欠拟合)
     optimizer = optim.Adam(model.parameters(), lr=cfg.LEARNING_RATE)
     
-    # 修改学习率调度器：更平缓的衰减，每 50 轮衰减为 0.5
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
+    # 学习率调度器：当验证集 Loss 连续 patience 轮不下降时，自动将学习率乘以 factor
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='min',        # 监控指标为 Loss，越小越好
+        factor=0.5,        # 学习率衰减因子
+        patience=10,       # 容忍多少轮 Loss 不下降
+        min_lr=1e-6,       # 最小学习率
+        verbose=True       # 打印学习率变化信息
+    )
     
     # --- 训练循环 ---
     best_acc = 0.0 # 记录验证集上的最高准确率
@@ -57,16 +73,27 @@ def train():
     val_accs = []
     
     print("开始训练...")
+    
     for epoch in range(cfg.NUM_EPOCHS):
-        model.train() # 设置为训练模式 (开启 Dropout 等)
+        model.train()  # 设置为训练模式 (开启 Dropout 等)
         running_loss = 0.0
         correct = 0
         total = 0
         
-        # 使用 tqdm 显示进度条
-        loop = tqdm(train_loader, desc=f"Epoch [{epoch+1}/{cfg.NUM_EPOCHS}]", leave=True)
+        # 使用 tqdm 创建进度条，每个epoch只有一个进度条
+        # ascii=True 确保 Windows 终端兼容性
+        # file=sys.stderr 避免与 stdout 输出冲突
+        pbar = tqdm(
+            train_loader, 
+            desc=f"Epoch [{epoch+1}/{cfg.NUM_EPOCHS}]", 
+            ncols=100,
+            leave=False,
+            ascii=True,
+            file=sys.stderr,
+            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]'
+        )
         
-        for inputs, labels in loop:
+        for inputs, labels in pbar:
             # 迁移数据到设备
             inputs = inputs.to(device)
             # 确保标签是 LongTensor 类型，多分类任务的要求
@@ -77,19 +104,24 @@ def train():
             loss = criterion(outputs, labels)
             
             # --- 反向传播和优化 ---
-            optimizer.zero_grad() # 清空梯度
-            loss.backward()      # 计算梯度
-            optimizer.step()     # 更新参数
+            optimizer.zero_grad()  # 清空梯度
+            loss.backward()        # 计算梯度
+            optimizer.step()       # 更新参数
             
             # --- 统计训练指标 ---
             running_loss += loss.item() * inputs.size(0)
-            _, predicted = torch.max(outputs.data, 1) # 获取预测值 (最大概率对应的索引)
+            _, predicted = torch.max(outputs.data, 1)  # 获取预测值 (最大概率对应的索引)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
             
-            # 在进度条上更新当前 Batch 的 Loss
-            loop.set_postfix(loss=loss.item())
-            
+            # 在进度条上实时更新损失和准确率信息
+            current_loss = running_loss / total
+            current_acc = 100 * correct / total
+            pbar.set_postfix(ordered_dict={
+                'Loss': f'{current_loss:.4f}',
+                'Acc': f'{current_acc:.2f}%'
+            }, refresh=False)  # refresh=False 避免强制刷新
+        
         # 计算 Epoch 平均 Loss 和准确率
         epoch_loss = running_loss / total
         train_acc = 100 * correct / total
@@ -98,6 +130,7 @@ def train():
         # 每一轮训练结束后，在验证集上评估模型性能
         val_loss, val_acc = validate(model, val_loader, criterion, device)
         
+        # 打印本轮训练结果
         print(f"Epoch [{epoch+1}/{cfg.NUM_EPOCHS}] 结果:")
         print(f"  训练集 Loss: {epoch_loss:.4f} | 准确率: {train_acc:.2f}%")
         print(f"  验证集 Loss: {val_loss:.4f} | 准确率: {val_acc:.2f}%")
@@ -144,9 +177,10 @@ def train():
         plt.close()
         print(f"  训练曲线已更新")
         
-        # --- 更新学习率 ---
-        scheduler.step()
-        print(f"  当前学习率: {scheduler.get_last_lr()[0]:.6f}")
+        # --- 更新学习率 (基于验证集 Loss) ---
+        scheduler.step(val_loss)
+        current_lr = optimizer.param_groups[0]['lr']
+        print(f"  当前学习率: {current_lr:.6f}")
             
     print("训练结束。")
 
