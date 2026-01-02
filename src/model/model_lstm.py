@@ -38,33 +38,61 @@ class BiLSTM(nn.Module):
         # 全连接层输入维度：如果是双向 LSTM，则为 hidden_size * 2
         fc_input_dim = hidden_size * 2 if self.bidirectional else hidden_size
         
+        # Dropout 层
+        self.dropout_fc = nn.Dropout(dropout)
+        
         # 输出层：将 LSTM 的输出映射到类别空间
         self.fc = nn.Linear(fc_input_dim, num_classes)
         
-    def forward(self, x):
+    def forward(self, x, lengths):
         """
         前向传播计算。
         
         Args:
             x (torch.Tensor): 输入张量，形状为 (batch_size, seq_len, input_size)
+            lengths (torch.Tensor): 每个样本的真实长度，形状为 (batch_size,)
             
         Returns:
             torch.Tensor: 输出得分，形状为 (batch_size, num_classes)
         """
         # x shape: (batch_size, seq_len, input_size)
         
-        # LSTM 前向传播
-        # out 形状: (batch, seq_len, num_directions * hidden_size)
-        # 我们忽略了最终的隐藏状态 _ (h_n, c_n)
-        out, _ = self.lstm(x)
+        # 1. Pack the sequence
+        # pack_padded_sequence 要求 lengths 必须在 CPU 上
+        # enforce_sorted=False 允许 batch 中的长度是乱序的
+        packed_input = nn.utils.rnn.pack_padded_sequence(x, lengths.cpu(), batch_first=True, enforce_sorted=False)
         
-        # 特征聚合策略：平均池化 (Mean Pooling)
-        # 对时间维度 (dim=1) 求平均，这有助于捕获整个序列的信息，
-        # 并且相比于取最后一帧，对填充 (Padding) 的零向量更鲁棒。
-        out = torch.mean(out, dim=1)
+        # 2. LSTM Forward
+        # out 也是一个 PackedSequence 对象
+        # (h_n, c_n) 是最后一个*有效*时间步的隐藏状态，这正是我们想要的！
+        packed_out, (h_n, c_n) = self.lstm(packed_input)
         
-        # 通过全连接层得到分类预测
+        # 3. 提取特征
+        # 如果是双向 LSTM，h_n 的形状是 (num_layers * 2, batch, hidden_size)
+        # 我们需要把最后两个方向的状态拼接起来
+        
+        if self.bidirectional:
+            # 取最后一层的正向和反向 hidden state
+            # h_nview: (num_layers, num_directions, batch, hidden_size)
+            h_n_view = h_n.view(self.num_layers, 2, x.size(0), self.hidden_size)
+            
+            # 获取最后一层 (index = -1)
+            # forward_state: (batch, hidden_size)
+            forward_state = h_n_view[-1, 0, :, :]
+            # backward_state: (batch, hidden_size)
+            backward_state = h_n_view[-1, 1, :, :]
+            
+            # 拼接: (batch, hidden_size * 2)
+            out_feature = torch.cat((forward_state, backward_state), dim=1)
+        else:
+            # 单向: 直接取最后一层的 hidden state
+            # (batch, hidden_size)
+            out_feature = h_n[-1, :, :]
+        
+        # 4. Dropout & FC
+        out = self.dropout_fc(out_feature)
         out = self.fc(out)
+        
         return out
 
 if __name__ == "__main__":

@@ -42,14 +42,18 @@ NUM_LAYERS = 2
 # 是否使用双向 LSTM
 BIDIRECTIONAL = True
 # 随机丢弃率 (Dropout)
-DROPOUT = 0.6
+DROPOUT = 0.5
+# 标签平滑 (Label Smoothing)
+LABEL_SMOOTHING = 0.1
 
 # --- 训练超参数 ---
 # 批处理大小
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 # 学习率
 LEARNING_RATE = 1e-3
+# L2 正则化 (权重衰减)
+WEIGHT_DECAY = 1e-3
 # 训练轮数
-NUM_EPOCHS = 100
+NUM_EPOCHS = 1000
 # 训练设备 (程序中会自动检查 GPU 可用性)
 DEVICE = 'cuda'

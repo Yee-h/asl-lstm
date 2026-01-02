@@ -110,19 +110,24 @@ class CSLDataset(Dataset):
         data = data.reshape(data.shape[0], -1)
         
         # --- 长度统一处理 (截断或填充) ---
-        T, D = data.shape
-        if T > self.max_frames:
+        # --- 长度统一处理 (截断或填充) ---
+        seq_len, dim = data.shape
+        if seq_len > self.max_frames:
             # 超过最大长度则截断
             data = data[:self.max_frames]
-        elif T < self.max_frames:
+            valid_len = self.max_frames
+        elif seq_len < self.max_frames:
             # 不足最大长度则在末尾补零
-            padding = np.zeros((self.max_frames - T, D), dtype=data.dtype)
+            padding = np.zeros((self.max_frames - seq_len, dim), dtype=data.dtype)
             data = np.concatenate((data, padding), axis=0)
+            valid_len = seq_len
+        else:
+            valid_len = seq_len
             
         # 转换为 PyTorch 张量，并使用 float32 精度
         data_tensor = torch.tensor(data, dtype=torch.float32)
         
-        return data_tensor, label_id
+        return data_tensor, label_id, valid_len
     
     def _apply_augmentation(self, data):
         """
@@ -141,6 +146,11 @@ class CSLDataset(Dataset):
         
         # 随机缩放因子：0.9 到 1.1
         scale = np.random.uniform(0.9, 1.1)
+
+        # 随机平移 (Translation): -0.1 到 0.1 (假设坐标已归一化到 0-1 或 -1~1)
+        # 对整个序列应用相同的平移，模拟相机位置偏差
+        tx = np.random.uniform(-0.1, 0.1)
+        ty = np.random.uniform(-0.1, 0.1)
         
         # 构建旋转矩阵
         cos_theta = np.cos(theta)
@@ -150,26 +160,34 @@ class CSLDataset(Dataset):
             [sin_theta, cos_theta]
         ])
         
-        # 应用缩放和旋转变换
+        # 应用变换
         # data 形状: (Frames, 2, 135)
-        # 对每一帧的所有关键点应用相同的变换
         transformed_data = data.copy()
         
         for frame_idx in range(data.shape[0]):
             # 提取当前帧的所有关键点坐标 (2, 135)
             frame_coords = data[frame_idx]  # shape: (2, 135)
             
+            # 1. 旋转
             # 转置为 (135, 2) 以便进行矩阵乘法
             coords_transposed = frame_coords.T  # shape: (135, 2)
+            # (135, 2) @ (2, 2)^T = (135, 2)
+            coords_rotated = coords_transposed @ rotation_matrix.T
             
-            # 应用缩放
-            coords_scaled = coords_transposed * scale
+            # 2. 缩放
+            coords_scaled = coords_rotated * scale
+
+            # 3. 平移 (广播加法)
+            coords_translated = coords_scaled + np.array([tx, ty])
             
-            # 应用旋转：(135, 2) @ (2, 2)^T = (135, 2)
-            coords_rotated = coords_scaled @ rotation_matrix.T
-            
-            # 转置回 (2, 135) 并保存
-            transformed_data[frame_idx] = coords_rotated.T
+            # 转置回 (2, 135)
+            transformed_data[frame_idx] = coords_translated.T
+
+        # 4. 高斯噪声 (Gaussian Noise)
+        # 对每个时间步的每个关键点添加独立噪声
+        # 均值 0，标准差 0.002
+        noise = np.random.normal(loc=0.0, scale=0.002, size=transformed_data.shape)
+        transformed_data = transformed_data + noise
         
         return transformed_data
 

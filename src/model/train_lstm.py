@@ -49,9 +49,9 @@ def train():
     
     # --- 定义损失函数和优化器 ---
     # CrossEntropyLoss 适用于多分类任务
-    criterion = nn.CrossEntropyLoss()
-    # 使用 Adam 优化器，学习率从配置文件获取 (移除 L2 正则化以减轻欠拟合)
-    optimizer = optim.Adam(model.parameters(), lr=cfg.LEARNING_RATE)
+    criterion = nn.CrossEntropyLoss(label_smoothing=cfg.LABEL_SMOOTHING)
+    # 使用 Adam 优化器，学习率从配置文件获取 (加入 L2 正则化以减轻过拟合)
+    optimizer = optim.Adam(model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=cfg.WEIGHT_DECAY)
     
     # 学习率调度器：当验证集 Loss 连续 patience 轮不下降时，自动将学习率乘以 factor
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -93,14 +93,14 @@ def train():
             bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]'
         )
         
-        for inputs, labels in pbar:
+        for inputs, labels, lengths in pbar:
             # 迁移数据到设备
             inputs = inputs.to(device)
             # 确保标签是 LongTensor 类型，多分类任务的要求
             labels = labels.long().to(device)
             
             # --- 前向传播 ---
-            outputs = model(inputs)
+            outputs = model(inputs, lengths)
             loss = criterion(outputs, labels)
             
             # --- 反向传播和优化 ---

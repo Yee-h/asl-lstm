@@ -29,13 +29,13 @@ def validate(model, val_loader, criterion, device):
     
     # 评估过程中不需要计算梯度，节省内存和计算资源
     with torch.no_grad():
-        for inputs, labels in val_loader:
+        for inputs, labels, lengths in val_loader:
             # 迁移数据到设备
             inputs = inputs.to(device)
             labels = labels.to(device)
             
             # --- 前向传播 ---
-            outputs = model(inputs)
+            outputs = model(inputs, lengths)
             loss = criterion(outputs, labels)
             
             # --- 统计指标 ---
