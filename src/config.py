@@ -24,7 +24,7 @@ TEST_MODEL_PATH = os.path.join(MODEL_SAVE_DIR, "best_model.pth")
 
 # --- 数据处理配置 ---
 # 序列最大帧数 (超出截断，不足补零)
-MAX_FRAMES = 110
+MAX_FRAMES = 90
 # 关键点维度 (X, Y 坐标则为 2)
 LANDMARK_DIM = 2
 # 关键点数量
@@ -52,14 +52,44 @@ USE_ATTENTION = True
 # Attention 隐藏层维度 (用于计算注意力权重)
 ATTENTION_DIM = 64
 
+# --- 数据增强配置（适度增强，防止过拟合但不过度破坏分布） ---
+# 旋转范围 (度)
+AUG_ROTATION_RANGE = 20
+# 缩放范围
+AUG_SCALE_MIN = 0.85
+AUG_SCALE_MAX = 1.15
+# 平移范围 (坐标归一化到 0~1)
+AUG_TRANSLATE = 0.12
+# 高斯噪声标准差
+AUG_NOISE_STD = 0.004
+# 水平翻转概率
+AUG_HFLIP_PROB = 0.30
+
 # --- 训练超参数 ---
 # 批处理大小
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 # 学习率
 LEARNING_RATE = 1e-3
 # L2 正则化 (权重衰减)
 WEIGHT_DECAY = 1e-3
 # 训练轮数
-NUM_EPOCHS = 1000
+NUM_EPOCHS = 300
 # 训练设备 (程序中会自动检查 GPU 可用性)
 DEVICE = 'cuda'
+
+# 摄像头索引（实时推理使用）
+CAMERA_INDEX = 0
+
+# --- UI/显示配置 ---
+# 中文字体候选路径（按顺序尝试找到可用字体）
+CHINESE_FONT_PATHS = [
+	r"C:\\Windows\\Fonts\\msyh.ttc",  # 微软雅黑
+	r"C:\\Windows\\Fonts\\simhei.ttf", # 黑体
+]
+# 叠加文本字号
+UI_FONT_SIZE = 32
+UI_FONT_SMALL_SIZE = 26
+# 退出按钮文字与尺寸
+EXIT_BUTTON_TEXT = "退出"
+EXIT_BUTTON_SIZE = (90, 40)   # (width, height)
+EXIT_BUTTON_MARGIN = (12, 12) # (right_margin, top_margin)

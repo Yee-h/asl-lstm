@@ -98,8 +98,19 @@ def evaluate_model():
     start_time = time.time()
     
     with torch.no_grad():
-        pbar = tqdm(test_loader, desc="评估中", ascii=True, ncols=100)
-        for inputs, labels, lengths in pbar:
+        # 单条覆盖式进度条（评估阶段）
+        pbar = tqdm(
+            total=len(test_loader),
+            desc="评估中",
+            ncols=100,
+            dynamic_ncols=True,
+            leave=False,
+            ascii=False,
+            file=sys.stderr,
+            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]'
+        )
+
+        for inputs, labels, lengths in test_loader:
             inputs = inputs.to(device)
             labels = labels.long().to(device) # 确保标签是 LongTensor
 
@@ -116,6 +127,17 @@ def evaluate_model():
             # 存储用于计算指标
             all_preds.extend(predicted.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
+
+            # 进度条信息
+            current_loss = running_loss / total
+            current_acc = 100 * correct / total
+            pbar.set_postfix(ordered_dict={
+                'Loss': f'{current_loss:.4f}',
+                'Acc': f'{current_acc:.2f}%'
+            }, refresh=False)
+            pbar.update(1)
+
+        pbar.close()
 
     end_time = time.time()
     duration = end_time - start_time
@@ -145,7 +167,7 @@ def evaluate_model():
         
         # 分类报告
         print("\n详细分类报告:")
-        report = classification_report(all_labels, all_preds, target_names=target_names, digits=4, zero_division=0)
+        report = classification_report(all_labels, all_preds, target_names=target_names, digits=4, zero_division=0, output_dict=False)
         print(report)
         
         # --- 保存报告到 logs 目录 ---
@@ -168,7 +190,7 @@ def evaluate_model():
             f.write(f"耗时:    {duration:.2f}s\n")
             f.write("-" * 40 + "\n")
             f.write("详细分类报告:\n")
-            f.write(report)
+            f.write(str(report))
             
         print(f"\n详细评估报告已保存至: {log_path}")
             

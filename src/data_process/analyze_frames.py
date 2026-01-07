@@ -33,5 +33,5 @@ def analyze_frame_distribution(file_path):
     return int(p95)
 
 if __name__ == "__main__":
-    file_path = r'd:\Document\Code\process_wsasl\pose_action_dataset\WLASL300\WLASL300_135-Train.hdf5'
+    file_path = r'D:\Document\\Code\\asl-lstm\dataset\\processed\WLASL100\WLASL100_135-Train.hdf5'
     analyze_frame_distribution(file_path)

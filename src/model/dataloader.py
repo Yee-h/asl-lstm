@@ -140,17 +140,16 @@ class CSLDataset(Dataset):
         Returns:
             np.ndarray: 变换后的特征数据，形状不变。
         """
-        # 随机旋转角度：-15° 到 +15°
-        angle = np.random.uniform(-15, 15)
+        # 随机旋转角度：可配置，默认约 ±20°，保持适度
+        angle = np.random.uniform(-cfg.AUG_ROTATION_RANGE, cfg.AUG_ROTATION_RANGE)
         theta = np.radians(angle)
         
-        # 随机缩放因子：0.9 到 1.1
-        scale = np.random.uniform(0.9, 1.1)
+        # 随机缩放因子：适度 0.85~1.15
+        scale = np.random.uniform(cfg.AUG_SCALE_MIN, cfg.AUG_SCALE_MAX)
 
-        # 随机平移 (Translation): -0.1 到 0.1 (假设坐标已归一化到 0-1 或 -1~1)
-        # 对整个序列应用相同的平移，模拟相机位置偏差
-        tx = np.random.uniform(-0.1, 0.1)
-        ty = np.random.uniform(-0.1, 0.1)
+        # 随机平移：可配置，默认 ±0.12
+        tx = np.random.uniform(-cfg.AUG_TRANSLATE, cfg.AUG_TRANSLATE)
+        ty = np.random.uniform(-cfg.AUG_TRANSLATE, cfg.AUG_TRANSLATE)
         
         # 构建旋转矩阵
         cos_theta = np.cos(theta)
@@ -185,9 +184,14 @@ class CSLDataset(Dataset):
 
         # 4. 高斯噪声 (Gaussian Noise)
         # 对每个时间步的每个关键点添加独立噪声
-        # 均值 0，标准差 0.002
-        noise = np.random.normal(loc=0.0, scale=0.002, size=transformed_data.shape)
+        noise = np.random.normal(loc=0.0, scale=cfg.AUG_NOISE_STD, size=transformed_data.shape)
         transformed_data = transformed_data + noise
+
+        # 5. 水平翻转（适度，默认 30% 概率）
+        if np.random.random() < cfg.AUG_HFLIP_PROB:
+            # 翻转 X 坐标，假设已归一化到 0~1
+            transformed_data[:, 0, :] = 1.0 - transformed_data[:, 0, :]
+            # 这里不交换左右关键点索引，简化处理
         
         return transformed_data
 

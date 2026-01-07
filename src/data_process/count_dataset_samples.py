@@ -7,7 +7,7 @@ from pathlib import Path
 # 例如: 
 # D:\Document\Code\process_wlasl\pose_action_dataset\WLASL100
 # D:\Document\Code\process_wlasl\pose_action_dataset\WLASL300
-DATASET_DIR = r'D:\Document\Code\process_wlasl\pose_action_dataset\WLASL100'
+DATASET_DIR = r'D:\Document\\Code\\asl-lstm\dataset\\processed\WLASL100'
 # ===========================================
 
 def count_samples():

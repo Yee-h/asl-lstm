@@ -82,21 +82,21 @@ def train():
         running_loss = 0.0
         correct = 0
         total = 0
-        
-        # 使用 tqdm 创建进度条，每个epoch只有一个进度条
-        # ascii=True 确保 Windows 终端兼容性
-        # file=sys.stderr 避免与 stdout 输出冲突
+
+        # 使用 tqdm 创建单条覆盖式进度条（每个 epoch 仅一条）
+        # ascii=False 启用 Unicode 方块样式；dynamic_ncols 让宽度自适应终端
         pbar = tqdm(
-            train_loader, 
-            desc=f"Epoch [{epoch+1}/{cfg.NUM_EPOCHS}]", 
+            total=len(train_loader),
+            desc=f"Epoch [{epoch+1}/{cfg.NUM_EPOCHS}]",
             ncols=100,
+            dynamic_ncols=True,
             leave=False,
-            ascii=True,
+            ascii=False,
             file=sys.stderr,
             bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]'
         )
-        
-        for inputs, labels, lengths in pbar:
+
+        for inputs, labels, lengths in train_loader:
             # 迁移数据到设备
             inputs = inputs.to(device)
             # 确保标签是 LongTensor 类型，多分类任务的要求
@@ -124,6 +124,9 @@ def train():
                 'Loss': f'{current_loss:.4f}',
                 'Acc': f'{current_acc:.2f}%'
             }, refresh=False)  # refresh=False 避免强制刷新
+            pbar.update(1)
+
+        pbar.close()
         
         # 计算 Epoch 平均 Loss 和准确率
         epoch_loss = running_loss / total
