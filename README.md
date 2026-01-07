@@ -4,7 +4,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.5.1-red.svg)](https://pytorch.org/)
 [![MediaPipe](https://img.shields.io/badge/MediaPipe-0.10.9-green.svg)](https://mediapipe.dev/)
 
-本项目实现了基于 **BiLSTM** 的手语识别系统，采用 **双管道架构**（离线训练 + 在线推理），支持从视频数据集训练模型到实时摄像头识别的完整流程。
+本项目实现了基于 **BiLSTM + Attention** 的手语识别系统，采用 **双管道架构**（离线训练 + 在线推理），支持从视频数据集训练模型到实时摄像头识别的完整流程。
 
 ## 核心特性
 
@@ -15,7 +15,7 @@
   - MediaPipe Holistic 提取 **135个关键点** (Body25 + Hand42 + Face68)
   - 改进的 **3D** 坐标归一化算法（鼻尖原点 + 肩宽缩放）
   - 多进程加速 + 断点续传
-  - BiLSTM 模型训练
+  - **BiLSTM + Attention** 模型训练 (支持自动聚焦关键帧)
 
 - **管道B（在线推理流水线）**：
   - 实时摄像头输入
@@ -26,6 +26,7 @@
 
 ### 技术亮点
 
+- ✅ **先进模型架构**：采用 BiLSTM + Attention 机制，有效解决长序列信息遗忘问题，自动聚焦动作关键帧
 - ✅ **标准数据格式**：使用 HDF5 存储特征，结构清晰，读取高效
 - ✅ **全维度特征**：包含 Body, Hands, Face 共 135 个关键点，保留 Z 轴深度信息
 - ✅ **归一化一致性**：训练与推理使用完全相同的归一化逻辑
@@ -38,7 +39,7 @@
 ```
 asl-lstm/
 ├── src/                           # 源代码
-│   ├── config.py                  # 全局配置（支持 WLASL100/300/2000 切换）
+│   ├── config.py                  # 全局配置（支持 WLASL100/300/2000 切换，Attention 开关）
 │   ├── data_process/              # 数据处理
 │   │   ├── preprocess_wlasl.py    # 预处理主流程 (生成 WLASL 格式 .hdf5)
 │   │   ├── transfer_hdf5_data.py  # 数据迁移工具 (Val/Test -> Train)
@@ -46,17 +47,17 @@ asl-lstm/
 │   │   ├── count_dataset_samples.py # 样本统计
 │   │   └── read_data_struct.py    # HDF5 结构查看
 │   ├── model/                     # 模型训练与评估
-│   │   ├── model_lstm.py          # BiLSTM 模型定义
+│   │   ├── model_lstm.py          # BiLSTM + Attention 模型定义
 │   │   ├── dataloader.py          # DataLoader (支持 HDF5 读取)
 │   │   ├── train_lstm.py          # 训练主流程
 │   │   ├── validate_lstm.py       # 验证函数
-│   │   └── evaluate.py            # 测试集评估
+│   │   └── evaluate_lstm.py       # 测试集评估
 │   ├── checkpoints/               # [生成] 模型权重
 │   │   ├── best_model.pth
 │   │   └── vocab.json
 │   └── test/                      # 测试脚本
 │       ├── gpu_cuda_check.py      # GPU 环境检测
-│       └── data_shape_test.py     # 数据形状验证
+│       └── processed_data_test.py # 数据形状验证
 ├── dataset/                       # 数据集
 │   ├── raw/                       # 原始数据 (WLASL videos & json)
 │   ├── processed/                 # 处理后数据

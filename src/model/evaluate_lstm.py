@@ -18,7 +18,7 @@ if sys.platform == 'win32':
 # 将 src 添加到 python 路径以允许导入
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import src.config as cfg
-from src.model.model_lstm import BiLSTM
+from src.model.model_lstm import get_model
 from src.model.dataloader import get_dataloaders
 
 def load_label_map_inverse():
@@ -67,7 +67,9 @@ def evaluate_model():
     print(f"测试数据加载完成。批次数量: {len(test_loader)}")
 
     # 3. 初始化模型
-    model = BiLSTM().to(device)
+    model = get_model(use_attention=cfg.USE_ATTENTION).to(device)
+    model_type = "BiLSTM+Attention" if cfg.USE_ATTENTION else "BiLSTM"
+    print(f"模型架构: {model_type}")
     
     # 4. 加载权重
     model_path = cfg.TEST_MODEL_PATH
@@ -97,12 +99,12 @@ def evaluate_model():
     
     with torch.no_grad():
         pbar = tqdm(test_loader, desc="评估中", ascii=True, ncols=100)
-        for inputs, labels in pbar:
+        for inputs, labels, lengths in pbar:
             inputs = inputs.to(device)
             labels = labels.long().to(device) # 确保标签是 LongTensor
 
-            # 前向传播
-            outputs = model(inputs)
+            # 前向传播 (传递 lengths 参数)
+            outputs = model(inputs, lengths)
             loss = criterion(outputs, labels)
 
             # 统计指标

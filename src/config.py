@@ -46,6 +46,12 @@ DROPOUT = 0.5
 # 标签平滑 (Label Smoothing)
 LABEL_SMOOTHING = 0.1
 
+# --- Attention 机制配置 ---
+# 是否启用 Attention 机制
+USE_ATTENTION = True
+# Attention 隐藏层维度 (用于计算注意力权重)
+ATTENTION_DIM = 64
+
 # --- 训练超参数 ---
 # 批处理大小
 BATCH_SIZE = 64

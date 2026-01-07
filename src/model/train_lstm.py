@@ -25,7 +25,7 @@ except ImportError:
 # 将 src 目录添加到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import src.config as cfg
-from src.model.model_lstm import BiLSTM
+from src.model.model_lstm import get_model
 from src.model.dataloader import get_dataloaders
 from src.model.validate_lstm import validate
 
@@ -44,8 +44,12 @@ def train():
     print("数据集加载完成。")
     
     # --- 初始化模型 ---
+    # 根据配置选择 BiLSTM 或 BiLSTM+Attention 模型
     # 并将模型参数迁移到指定设备 (CPU/GPU)
-    model = BiLSTM().to(device)
+    model = get_model(use_attention=cfg.USE_ATTENTION).to(device)
+    model_type = "BiLSTM+Attention" if cfg.USE_ATTENTION else "BiLSTM"
+    print(f"模型架构: {model_type}")
+    print(f"模型参数总量: {sum(p.numel() for p in model.parameters()):,}")
     
     # --- 定义损失函数和优化器 ---
     # CrossEntropyLoss 适用于多分类任务
@@ -59,8 +63,7 @@ def train():
         mode='min',        # 监控指标为 Loss，越小越好
         factor=0.5,        # 学习率衰减因子
         patience=10,       # 容忍多少轮 Loss 不下降
-        min_lr=1e-6,       # 最小学习率
-        verbose=True       # 打印学习率变化信息
+        min_lr=1e-6        # 最小学习率
     )
     
     # --- 训练循环 ---
