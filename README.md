@@ -10,10 +10,14 @@
 
 ### 架构设计
 
-- **管道A（离线训练流水线）**：
+- **离线训练流水线 (Pipeline A)**：
   - 批量处理视频数据集，生成高效 **HDF5** 格式特征文件
-  - MediaPipe Holistic 提取 **135个关键点** (Body25 + Hand42 + Face68)
-  - 改进的 **3D** 坐标归一化算法（鼻尖原点 + 肩宽缩放）
+  - MediaPipe Tasks API 提取 **135个关键点** (Body25 + Hand42 + Face68)
+  - **数据预处理优化**：
+    - **坐标原点**：肩中点 (Mid-Shoulder) 消除头部晃动影响
+    - **归一化尺度**：全序列固定肩宽 (Video-level Scale) 消除呼吸效应
+    - **时序对齐**：均匀重采样 (Uniform Resampling) 保留完整动作语义
+    - **特征增强**：坐标 + 一阶差分 (X, Y, dX, dY) 捕捉速度与方向信息
   - 多进程加速 + 断点续传
   - **BiLSTM + Attention** 模型训练 (支持自动聚焦关键帧)
 
@@ -28,9 +32,9 @@
 
 - ✅ **先进模型架构**：采用 BiLSTM + Attention 机制，有效解决长序列信息遗忘问题，自动聚焦动作关键帧
 - ✅ **标准数据格式**：使用 HDF5 存储特征，结构清晰，读取高效
-- ✅ **全维度特征**：包含 Body, Hands, Face 共 135 个关键点，保留 Z 轴深度信息
-- ✅ **归一化一致性**：训练与推理使用完全相同的归一化逻辑
-- ✅ **距离无关**：通过肩宽归一化消除用户与摄像头距离影响
+- ✅ **全维度特征**：包含 Body, Hands, Face 共 135 个关键点，引入 **速度 (dX, dY)** 一阶差分特征
+- ✅ **归一化一致性**：基于肩中点的全局归一化，训练与推理逻辑完全对齐
+- ✅ **距离/人体位移无关**：通过肩宽中位数归一化消除距离影响，通过肩中点原点消除人体位移干扰
 - ✅ **配置集中化**：所有参数统一在 `config.py` 管理
 - ✅ **GPU 加速**：支持 CUDA 12.1 训练与推理
 
@@ -154,36 +158,38 @@ uv run python src/model/realtime_inference.py
 所有配置集中在 `src/config.py`。
 
 
-### 数据维度 (Updated)
+### 数据逻辑 (Updated)
 ```python
-# 坐标维度 (x, y, z)
-LANDMARK_DIM = 3
+# 特征维度 (x, y, dx, dy)
+LANDMARK_DIM = 4
 
 # 关键点映射
 POSE (Body 25) + Left Hand (21) + Right Hand (21) + Face (68)
 Total Keypoints = 135
 
 # 总特征维度
-TOTAL_FEATURE_DIM = 135 * 3 = 405
-MAX_FRAMES = 110 (超长截断)
+INPUT_SIZE = 135 * 4 = 540
+MAX_FRAMES = 90 (均匀重采样或零填充)
 ```
 
-### 归一化逻辑
-1. **原点**: 鼻尖 (Nose)
-2. **尺度**: 左右肩宽 (Shoulder Width)
-3. **映射**: 将 MediaPipe 的 dense output 映射到 OpenPose Body 25 和 simplified Face 68 格式。
+### 归一化策略
+1. **坐标原点**: 肩中点 (Mid-Shoulder = (L_Shoulder + R_Shoulder) / 2)
+2. **归一化尺度**: 全视频序列的肩宽中位数 (Global Video-level Scale)
+3. **特征增强**: 每个点包含当前帧坐标 (x, y) 及其相对于上一帧的变化量 (dx, dy)
+4. **时序处理**: 
+   - 帧数 > 90: 使用 **线性插值** (Linear Interpolation) 均匀降采样，避免 FFT 振铃效应
+   - 帧数 < 90: 在末尾补零 (Padding)，保留原始动作长度
 
 ## 数据集格式 (HDF5)
 
 **文件**: `dataset/processed/WLASL100/WLASL100_135-Train.hdf5`
 
 **层级结构**:
+**层级结构**:
 - `/{Video_ID}` (Group)
-  - `data` (Dataset): 形状 `(Frames, 405)`。包含展平后的 normalized 3D 坐标。
-    - 内容顺序: [Body(25), LHand(21), RHand(21), Face(68)]
-  - Attributes:
-    - `label`: Gloss (e.g., "book")
-    - `action_id`: Label ID (e.g., 0)
-    - `frame_count`: Number of frames
-
-
+  - `data` (Dataset): 形状 `(90, 4, 135)`，类型 `float32`。包含 normalized (x, y, dx, dy)。
+    - 内容维度: [Time, Feature_Dim(4), Landmarks(135)]
+  - `length` (Dataset): 类型 `int64`。有效帧长度 (Valid Length)，支持 Masking。
+  - `label`: Gloss 标签 (e.g., "book")
+  - `video_name`: 原始视频相对路径
+  - `width/height`: 原始视频分辨率
