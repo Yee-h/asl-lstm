@@ -6,12 +6,18 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 数据集规模 (例如: 100, 300, 2000)
 DATASET_SCALE = 100
 # 已处理数据的存储目录
-PROCESSED_DATA_DIR = os.path.join(PROJECT_ROOT, "dataset", "processed", f"WLASL{DATASET_SCALE}")
+PROCESSED_DATA_DIR = os.path.join(
+    PROJECT_ROOT, "dataset", "processed", f"WLASL{DATASET_SCALE}"
+)
 # 标签映射文件路径 (JSON格式)
-LABEL_MAP_PATH = os.path.join(PROCESSED_DATA_DIR, f"wlasl_{DATASET_SCALE}_maplabels.json")
+LABEL_MAP_PATH = os.path.join(
+    PROCESSED_DATA_DIR, f"wlasl_{DATASET_SCALE}_maplabels.json"
+)
 
 # 训练、验证和测试集的 HDF5 文件路径
-TRAIN_DATA_PATH = os.path.join(PROCESSED_DATA_DIR, f"WLASL{DATASET_SCALE}_135-Train.hdf5")
+TRAIN_DATA_PATH = os.path.join(
+    PROCESSED_DATA_DIR, f"WLASL{DATASET_SCALE}_135-Train.hdf5"
+)
 VAL_DATA_PATH = os.path.join(PROCESSED_DATA_DIR, f"WLASL{DATASET_SCALE}_135-Val.hdf5")
 TEST_DATA_PATH = os.path.join(PROCESSED_DATA_DIR, f"WLASL{DATASET_SCALE}_135-Test.hdf5")
 
@@ -23,13 +29,25 @@ os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
 TEST_MODEL_PATH = os.path.join(MODEL_SAVE_DIR, "best_model.pth")
 
 # --- 数据处理配置 ---
+# 预处理流水线版本标识
+PREPROCESS_PIPELINE_VERSION = "v3"
+# 是否保存预处理调试信息（质量统计、过滤日志等）
+SAVE_PREPROCESS_DEBUG = True
+
 # 序列最大帧数 (超出重采样，不足补零)
 MAX_FRAMES = 90
-# 关键点维度 (包含速度特征: x, y, dx, dy)
-LANDMARK_DIM = 4
+# 是否启用加速度特征 (ddx, ddy)
+ENABLE_ACCEL_FEATURE = False
+# 基础通道 (保留当前 dx, dy 管道)
+BASE_FEATURE_CHANNELS = ["x", "y", "dx", "dy"]
+if ENABLE_ACCEL_FEATURE:
+    BASE_FEATURE_CHANNELS = BASE_FEATURE_CHANNELS + ["ddx", "ddy"]
+
+# 关键点维度（由通道数自动计算）
+LANDMARK_DIM = len(BASE_FEATURE_CHANNELS)
 # 关键点数量
 NUM_LANDMARKS = 135
-# 模型输入维度 (135个关键点 * 每个点4维 = 540)
+# 模型输入维度 (关键点数量 * 通道数)
 INPUT_SIZE = LANDMARK_DIM * NUM_LANDMARKS
 # 类别数量，对应数据集规模
 NUM_CLASSES = DATASET_SCALE
@@ -47,12 +65,36 @@ DEFAULT_LIMIT = None
 # 多进程处理配置 (设为 1 禁用多进程，None 自动检测 CPU 核心数)
 NUM_WORKERS = None
 
+# 缺失补全与质量控制
+ENABLE_MISSING_INTERP = True
+# 仅插值长度不超过该阈值的缺失段
+INTERP_MAX_GAP = 8
+# 样本最低有效关键点比例阈值
+MIN_VALID_RATIO_PER_SAMPLE = 0.35
+# 单帧最少有效关键点数（用于判断检测是否有效）
+MIN_VALID_KEYPOINTS_PER_FRAME = 5
+
+# 归一化与平滑
+ENABLE_SHOULDER_AXIS_ALIGN = True
+SCALE_MODE = "shoulder_torso_fusion"
+NORMALIZE_EPS = 1e-6
+ENABLE_XY_SMOOTH = True
+SMOOTH_METHOD = "ema"
+SMOOTH_EMA_ALPHA = 0.35
+
+# 标准化（train-only 统计）
+ENABLE_STANDARDIZE = True
+FEATURE_STATS_PATH = os.path.join(
+    PROCESSED_DATA_DIR, f"WLASL{DATASET_SCALE}_train_stats.json"
+)
+STANDARDIZE_EPS = 1e-6
+
 # 子集 JSON 映射
 SUBSET_JSON_MAP = {
-	100: os.path.join(RAW_DATA_DIR, "WLASL100", "nslt_100.json"),
-	300: os.path.join(RAW_DATA_DIR, "WLASL300", "nslt_300.json"),
-	1000: os.path.join(RAW_DATA_DIR, "WLASL1000", "nslt_1000.json"),
-	2000: os.path.join(RAW_DATA_DIR, "WLASL2000", "nslt_2000.json"),
+    100: os.path.join(RAW_DATA_DIR, "WLASL100", "nslt_100.json"),
+    300: os.path.join(RAW_DATA_DIR, "WLASL300", "nslt_300.json"),
+    1000: os.path.join(RAW_DATA_DIR, "WLASL1000", "nslt_1000.json"),
+    2000: os.path.join(RAW_DATA_DIR, "WLASL2000", "nslt_2000.json"),
 }
 
 # Mediapipe 模型与阈值
@@ -107,6 +149,17 @@ AUG_TRANSLATE = 0.12
 AUG_NOISE_STD = 0.004
 # 水平翻转概率
 AUG_HFLIP_PROB = 0.30
+# 水平翻转时是否交换左右关键点语义
+AUG_HFLIP_SWAP_LR = True
+# 零中心坐标翻转策略：x -> -x
+AUG_HFLIP_ZERO_CENTERED = True
+
+# 时序增强
+AUG_TIME_WARP_PROB = 0.20
+AUG_TIME_WARP_MIN = 0.90
+AUG_TIME_WARP_MAX = 1.10
+AUG_FRAME_DROPOUT_PROB = 0.15
+AUG_FRAME_DROPOUT_MAX_RATIO = 0.10
 
 # --- 训练超参数 ---
 # 批处理大小
@@ -118,7 +171,7 @@ WEIGHT_DECAY = 1e-3
 # 训练轮数
 NUM_EPOCHS = 500
 # 训练设备 (程序中会自动检查 GPU 可用性)
-DEVICE = 'cuda'
+DEVICE = "cuda"
 
 # 摄像头索引（实时推理使用）
 CAMERA_INDEX = 0
@@ -133,16 +186,16 @@ INFERENCE_INTERVAL = 1
 # --- UI/显示配置 ---
 # 中文字体候选路径（按顺序尝试找到可用字体）
 CHINESE_FONT_PATHS = [
-	r"C:\\Windows\\Fonts\\msyh.ttc",  # 微软雅黑
-	r"C:\\Windows\\Fonts\\simhei.ttf", # 黑体
+    r"C:\\Windows\\Fonts\\msyh.ttc",  # 微软雅黑
+    r"C:\\Windows\\Fonts\\simhei.ttf",  # 黑体
 ]
 # 叠加文本字号
 UI_FONT_SIZE = 32
 UI_FONT_SMALL_SIZE = 26
 # 退出按钮文字与尺寸
 EXIT_BUTTON_TEXT = "退出"
-EXIT_BUTTON_SIZE = (90, 40)   # (width, height)
-EXIT_BUTTON_MARGIN = (12, 12) # (right_margin, top_margin)
+EXIT_BUTTON_SIZE = (90, 40)  # (width, height)
+EXIT_BUTTON_MARGIN = (12, 12)  # (right_margin, top_margin)
 
 # 骨骼显示切换按钮配置
 SKELETON_BUTTON_TEXT_ON = "隐藏骨骼"
@@ -152,6 +205,6 @@ SKELETON_BUTTON_GAP = 10  # 与退出按钮的间距
 
 # 骨骼绘制样式
 SKELETON_POINT_RADIUS = 3
-SKELETON_POINT_COLOR = (0, 255, 0)   # BGR: 绿色
+SKELETON_POINT_COLOR = (0, 255, 0)  # BGR: 绿色
 SKELETON_LINE_COLOR = (255, 255, 0)  # BGR: 青色
 SKELETON_LINE_THICKNESS = 1

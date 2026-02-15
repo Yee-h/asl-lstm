@@ -13,13 +13,15 @@ import torch.nn.functional as F
 from PIL import Image, ImageDraw, ImageFont
 
 # 解决 Windows 终端编码与颜色支持问题
-if sys.platform == 'win32':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
-    os.system('')
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+    os.system("")
 
 # 确保能够以模块方式导入 src
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.append(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 import src.config as cfg
 from src.model.model_lstm import get_model
@@ -29,13 +31,13 @@ from src.data_process.preprocess_wlasl import KeypointExtractor
 
 def load_label_map_inverse() -> dict:
     """读取并反转标签映射，返回 {id: label} 字典。"""
-    with open(cfg.LABEL_MAP_PATH, 'r', encoding='utf-8') as f:
+    with open(cfg.LABEL_MAP_PATH, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    if 'id_to_label' in data:
-        mapping = data['id_to_label']
-    elif 'label_to_id' in data:
-        mapping = data['label_to_id']
+    if "id_to_label" in data:
+        mapping = data["id_to_label"]
+    elif "label_to_id" in data:
+        mapping = data["label_to_id"]
     else:
         mapping = data
 
@@ -97,13 +99,20 @@ def draw_overlay_with_buttons(
     exit_x2 = exit_x1 + exit_w
     exit_y2 = exit_y1 + exit_h
 
-    draw.rectangle([exit_x1, exit_y1, exit_x2, exit_y2], fill=(245, 245, 245), outline=(0, 0, 0), width=2)
+    draw.rectangle(
+        [exit_x1, exit_y1, exit_x2, exit_y2],
+        fill=(245, 245, 245),
+        outline=(0, 0, 0),
+        width=2,
+    )
     bbox = draw.textbbox((0, 0), cfg.EXIT_BUTTON_TEXT, font=font_small)
     text_w = bbox[2] - bbox[0]
     text_h = bbox[3] - bbox[1]
     text_x_btn = exit_x1 + (exit_w - text_w) // 2
     text_y_btn = exit_y1 + (exit_h - text_h) // 2
-    draw.text((text_x_btn, text_y_btn), cfg.EXIT_BUTTON_TEXT, font=font_small, fill=(0, 0, 0))
+    draw.text(
+        (text_x_btn, text_y_btn), cfg.EXIT_BUTTON_TEXT, font=font_small, fill=(0, 0, 0)
+    )
 
     # 骨骼切换按钮（退出按钮左侧）
     skel_w, skel_h = cfg.SKELETON_BUTTON_SIZE
@@ -112,92 +121,132 @@ def draw_overlay_with_buttons(
     skel_y1 = margin_t
     skel_y2 = skel_y1 + skel_h
 
-    skel_btn_text = cfg.SKELETON_BUTTON_TEXT_ON if show_skeleton else cfg.SKELETON_BUTTON_TEXT_OFF
+    skel_btn_text = (
+        cfg.SKELETON_BUTTON_TEXT_ON if show_skeleton else cfg.SKELETON_BUTTON_TEXT_OFF
+    )
     btn_fill = (200, 255, 200) if show_skeleton else (245, 245, 245)
-    draw.rectangle([skel_x1, skel_y1, skel_x2, skel_y2], fill=btn_fill, outline=(0, 0, 0), width=2)
+    draw.rectangle(
+        [skel_x1, skel_y1, skel_x2, skel_y2], fill=btn_fill, outline=(0, 0, 0), width=2
+    )
     bbox_skel = draw.textbbox((0, 0), skel_btn_text, font=font_small)
     skel_text_w = bbox_skel[2] - bbox_skel[0]
     skel_text_h = bbox_skel[3] - bbox_skel[1]
     skel_text_x = skel_x1 + (skel_w - skel_text_w) // 2
     skel_text_y = skel_y1 + (skel_h - skel_text_h) // 2
-    draw.text((skel_text_x, skel_text_y), skel_btn_text, font=font_small, fill=(0, 0, 0))
+    draw.text(
+        (skel_text_x, skel_text_y), skel_btn_text, font=font_small, fill=(0, 0, 0)
+    )
 
     rendered = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-    return rendered, (exit_x1, exit_y1, exit_x2, exit_y2), (skel_x1, skel_y1, skel_x2, skel_y2)
+    return (
+        rendered,
+        (exit_x1, exit_y1, exit_x2, exit_y2),
+        (skel_x1, skel_y1, skel_x2, skel_y2),
+    )
 
 
 def draw_skeleton(frame: np.ndarray, keypoints: np.ndarray) -> np.ndarray:
     """
     在画面上绘制 MediaPipe 提取的骨骼关键点。
-    
+
     Args:
         frame: BGR 图像
         keypoints: 形状为 (2, 135) 的归一化坐标，[0] 是 x，[1] 是 y
-        
+
     Returns:
         绘制骨骼后的图像
     """
     h, w = frame.shape[:2]
     result = frame.copy()
-    
+
     # 135 关键点布局：Body 25 + Left Hand 21 + Right Hand 21 + Face 68
     # Body: 0-24, Left Hand: 25-45, Right Hand: 46-66, Face: 67-134
-    
+
     # Body 25 连接关系 (OpenPose Body 25 格式)
     body_connections = [
-        (0, 1), (1, 2), (2, 3), (3, 4),      # 右臂
-        (1, 5), (5, 6), (6, 7),              # 左臂
-        (1, 8), (8, 9), (9, 10), (10, 11),   # 右腿
-        (8, 12), (12, 13), (13, 14),         # 左腿
-        (0, 15), (0, 16), (15, 17), (16, 18), # 面部
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 4),  # 右臂
+        (1, 5),
+        (5, 6),
+        (6, 7),  # 左臂
+        (1, 8),
+        (8, 9),
+        (9, 10),
+        (10, 11),  # 右腿
+        (8, 12),
+        (12, 13),
+        (13, 14),  # 左腿
+        (0, 15),
+        (0, 16),
+        (15, 17),
+        (16, 18),  # 面部
     ]
-    
+
     # Hand 21 连接关系
     hand_connections = [
-        (0, 1), (1, 2), (2, 3), (3, 4),      # 拇指
-        (0, 5), (5, 6), (6, 7), (7, 8),      # 食指
-        (0, 9), (9, 10), (10, 11), (11, 12), # 中指
-        (0, 13), (13, 14), (14, 15), (15, 16), # 无名指
-        (0, 17), (17, 18), (18, 19), (19, 20), # 小指
-        (5, 9), (9, 13), (13, 17),           # 掌心连接
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 4),  # 拇指
+        (0, 5),
+        (5, 6),
+        (6, 7),
+        (7, 8),  # 食指
+        (0, 9),
+        (9, 10),
+        (10, 11),
+        (11, 12),  # 中指
+        (0, 13),
+        (13, 14),
+        (14, 15),
+        (15, 16),  # 无名指
+        (0, 17),
+        (17, 18),
+        (18, 19),
+        (19, 20),  # 小指
+        (5, 9),
+        (9, 13),
+        (13, 17),  # 掌心连接
     ]
-    
+
     point_color = cfg.SKELETON_POINT_COLOR
     line_color = cfg.SKELETON_LINE_COLOR
     radius = cfg.SKELETON_POINT_RADIUS
     thickness = cfg.SKELETON_LINE_THICKNESS
-    
+
     def get_point(idx: int) -> Tuple[int, int] | None:
         """获取关键点像素坐标，无效点返回 None"""
         x_norm, y_norm = keypoints[0, idx], keypoints[1, idx]
         if x_norm == 0 and y_norm == 0:
             return None
         return int(x_norm * w), int(y_norm * h)
-    
+
     # 绘制 Body 连接线
     for i, j in body_connections:
         p1, p2 = get_point(i), get_point(j)
         if p1 and p2:
             cv2.line(result, p1, p2, line_color, thickness)
-    
+
     # 绘制左手连接线 (索引偏移 25)
     for i, j in hand_connections:
         p1, p2 = get_point(i + 25), get_point(j + 25)
         if p1 and p2:
             cv2.line(result, p1, p2, line_color, thickness)
-    
+
     # 绘制右手连接线 (索引偏移 46)
     for i, j in hand_connections:
         p1, p2 = get_point(i + 46), get_point(j + 46)
         if p1 and p2:
             cv2.line(result, p1, p2, line_color, thickness)
-    
+
     # 绘制所有关键点
     for idx in range(135):
         pt = get_point(idx)
         if pt:
             cv2.circle(result, pt, radius, point_color, -1)
-    
+
     return result
 
 
@@ -222,7 +271,9 @@ def on_mouse(event: int, x: int, y: int, flags: int, params: Any):
             params["show_skeleton"] = not params.get("show_skeleton", False)
 
 
-def prepare_sequence(frame_buffer: Deque[np.ndarray]) -> Tuple[torch.Tensor, torch.Tensor]:
+def prepare_sequence(
+    frame_buffer: Deque[np.ndarray],
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     将关键点序列转换为模型可接受的张量。
     复用 dataloader.py 中的 preprocess_keypoints 函数。
@@ -239,10 +290,10 @@ def prepare_sequence(frame_buffer: Deque[np.ndarray]) -> Tuple[torch.Tensor, tor
 
     # 将队列堆叠为 numpy 数组: (seq_len, 2, 135)
     data = np.stack(frame_buffer)
-    
+
     # 复用 dataloader 中的预处理函数
     data_tensor, valid_len = preprocess_keypoints(data, cfg.MAX_FRAMES)
-    
+
     # 添加 batch 维度
     inputs = data_tensor.unsqueeze(0)  # (1, max_frames, input_size)
     lengths = torch.tensor([valid_len], dtype=torch.long)
@@ -258,7 +309,9 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
 
     按下键盘 "q" 或点击右上角按钮退出。
     """
-    device = torch.device('cuda' if torch.cuda.is_available() and cfg.DEVICE == 'cuda' else 'cpu')
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() and cfg.DEVICE == "cuda" else "cpu"
+    )
     print(f"当前使用的设备: {device}")
 
     # 加载标签映射
@@ -288,25 +341,30 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
 
     # 窗口与鼠标回调（用于退出按钮和骨骼切换按钮）
     window_name = "Real-time Sign Prediction"
-    mouse_state: Dict[str, Any] = {"exit_rect": None, "skel_rect": None, "quit": False, "show_skeleton": False}
+    mouse_state: Dict[str, Any] = {
+        "exit_rect": None,
+        "skel_rect": None,
+        "quit": False,
+        "show_skeleton": False,
+    }
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     cv2.setMouseCallback(window_name, on_mouse, mouse_state)
 
     # 摄像头输入
     cam_idx = cfg.CAMERA_INDEX if camera_index is None else camera_index
     cap = cv2.VideoCapture(cam_idx)
-    
+
     # 设置摄像头参数以提高帧率
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, cfg.CAMERA_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg.CAMERA_HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, cfg.CAMERA_FPS)
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # 减小缓冲区降低延迟
-    
+
     if not cap.isOpened():
         print(f"错误: 无法打开摄像头索引 {cam_idx}")
         extractor.close()
         return
-    
+
     actual_fps = cap.get(cv2.CAP_PROP_FPS)
     actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -331,22 +389,20 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
                 frame = cv2.flip(frame, 1)
 
                 frame_count += 1
-                
+
                 # 每帧都提取关键点用于显示，但推理可以间隔进行
-                keypoints = extractor.extract_frame(frame)
-                
+                keypoints, valid_mask = extractor.extract_frame(frame)
+
                 # 检查关键点是否有效（至少有一定数量的非零点才认为检测成功）
                 keypoints_valid = False
-                if keypoints is not None:
-                    # 统计非零关键点数量（x 和 y 都不为 0 才算有效点）
-                    non_zero_count = np.sum((keypoints[0] != 0) | (keypoints[1] != 0))
-                    # 至少需要检测到 5 个有效关键点才认为检测成功
-                    keypoints_valid = non_zero_count >= 5
-                
+                if keypoints is not None and valid_mask is not None:
+                    valid_count = int(np.sum(valid_mask))
+                    keypoints_valid = valid_count >= cfg.MIN_VALID_KEYPOINTS_PER_FRAME
+
                 # 只有检测到有效骨骼点时才更新 buffer
                 if keypoints_valid and keypoints is not None:
                     frame_buffer.append(keypoints)
-                    
+
                     # 按间隔进行模型推理以提高帧率
                     if frame_buffer and (frame_count % cfg.INFERENCE_INTERVAL == 0):
                         inputs, lengths = prepare_sequence(frame_buffer)
@@ -357,7 +413,9 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
                         probs = F.softmax(logits, dim=1).squeeze(0)
 
                         top_prob, top_idx = torch.max(probs, dim=0)
-                        pred_label = id_to_label.get(int(top_idx.item()), str(int(top_idx.item())))
+                        pred_label = id_to_label.get(
+                            int(top_idx.item()), str(int(top_idx.item()))
+                        )
                         last_result = (pred_label, float(top_prob.item()))
                 else:
                     # 未检测到有效骨骼点时清空缓冲区和预测结果
@@ -366,7 +424,11 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
                     keypoints = None  # 确保骨骼显示也不渲染
 
                 # 叠加显示信息（中文）
-                status_text = "未检测到人体..." if last_result is None else f"预测：{last_result[0]} ({last_result[1]*100:.1f}%)"
+                status_text = (
+                    "未检测到人体..."
+                    if last_result is None
+                    else f"预测：{last_result[0]} ({last_result[1] * 100:.1f}%)"
+                )
 
                 # FPS 估计
                 elapsed = time.time() - start_time
@@ -391,7 +453,7 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
                 cv2.imshow(window_name, overlay)
 
                 # 退出条件：按键 q 或点击右上角按钮
-                if (cv2.waitKey(1) & 0xFF == ord('q')) or mouse_state.get("quit"):
+                if (cv2.waitKey(1) & 0xFF == ord("q")) or mouse_state.get("quit"):
                     break
     finally:
         cap.release()
