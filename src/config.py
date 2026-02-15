@@ -1,210 +1,509 @@
+from __future__ import annotations
+
 import os
+from dataclasses import dataclass
 
-# --- 数据路径配置 ---
-# 项目根目录
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# 数据集规模 (例如: 100, 300, 2000)
-DATASET_SCALE = 100
-# 已处理数据的存储目录
-PROCESSED_DATA_DIR = os.path.join(
-    PROJECT_ROOT, "dataset", "processed", f"WLASL{DATASET_SCALE}"
+
+# =============================================================================
+# 统一配置中心（分模块）
+#
+# 设计说明：
+# 1) 所有配置统一集中在本文件，按“路径/预处理/模型/训练/推理/UI”等模块分组。
+# 2) 业务代码仅通过 cfg.<分组>.<字段> 访问配置，例如：cfg.TRAINING.batch_size。
+# 3) 不再提供旧版全局常量别名（如 cfg.BATCH_SIZE / cfg.LEARNING_RATE）。
+# =============================================================================
+
+
+# -----------------------------
+# 基础上下文（仅供本文件内部构建使用）
+# -----------------------------
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_DATASET_SCALE = 100
+
+
+@dataclass(frozen=True)
+class PathsConfig:
+    # 项目根目录绝对路径
+    project_root: str
+    # 当前实验数据规模（100/300/1000/2000）
+    dataset_scale: int
+    # 预处理后数据目录（按规模分子目录）
+    processed_data_dir: str
+    # 标签映射文件路径（maplabels）
+    label_map_path: str
+    # 训练集 HDF5 路径
+    train_data_path: str
+    # 验证集 HDF5 路径
+    val_data_path: str
+    # 测试集 HDF5 路径
+    test_data_path: str
+    # 模型检查点保存目录
+    model_save_dir: str
+    # 默认评估模型路径（best_model）
+    test_model_path: str
+    # 原始数据根目录
+    raw_data_dir: str
+    # videoId_word 目录（用于 gloss 映射等）
+    videoid_word_dir: str
+    # 默认元数据 JSON 路径（WLASL_v0.3）
+    default_json_path: str
+    # gloss 映射 JSON 路径
+    wlasl_gloss_json: str
+    # 默认视频目录（随数据规模变化）
+    default_video_dir: str
+    # 默认预处理输出根目录
+    default_output_dir: str
+    # 默认输出文件名前缀
+    default_output_prefix: str
+    # 默认日志输出目录
+    log_dir: str
+
+
+@dataclass(frozen=True)
+class SequenceConfig:
+    # 统一时序长度（不足补零，超出重采样）
+    max_frames: int
+    # 单帧关键点数量（WLASL 135点）
+    num_landmarks: int
+    # 是否启用二阶动态特征（ddx, ddy）
+    enable_accel_feature: bool
+    # 基础特征通道定义（按顺序展平）
+    base_feature_channels: tuple[str, ...]
+
+    @property
+    def landmark_dim(self) -> int:
+        # 每个关键点的通道数（由通道定义自动推导）
+        return len(self.base_feature_channels)
+
+    @property
+    def input_size(self) -> int:
+        # 模型输入维度 = 通道数 × 关键点数
+        return self.landmark_dim * self.num_landmarks
+
+    @property
+    def num_classes(self) -> int:
+        # 类别数与数据规模一致（WLASL100 -> 100 类）
+        return _DATASET_SCALE
+
+
+@dataclass(frozen=True)
+class PreprocessConfig:
+    # 预处理流水线版本号（用于追踪数据产物来源）
+    pipeline_version: str
+    # 是否输出预处理调试信息（质量统计、过滤日志等）
+    save_debug: bool
+    # 预处理多进程 worker 数（None=自动，1=单进程）
+    num_workers: int | None
+    # 是否启用缺失关键点插值
+    enable_missing_interp: bool
+    # 允许插值的最大连续缺失长度
+    interp_max_gap: int
+    # 样本最低有效关键点比例阈值（低于阈值可过滤）
+    min_valid_ratio_per_sample: float
+    # 单帧最少有效关键点数（实时推理有效帧判定）
+    min_valid_keypoints_per_frame: int
+    # 是否启用肩轴对齐（旋转归一化）
+    enable_shoulder_axis_align: bool
+    # 尺度归一化策略（如 shoulder_torso_fusion）
+    scale_mode: str
+    # 归一化数值稳定项
+    normalize_eps: float
+    # 是否启用坐标平滑
+    enable_xy_smooth: bool
+    # 平滑方法（当前支持 ema）
+    smooth_method: str
+    # EMA 平滑系数（越大越敏感，越小越平滑）
+    smooth_ema_alpha: float
+    # 是否启用训练集统计标准化
+    enable_standardize: bool
+    # 训练集统计量文件路径
+    feature_stats_path: str
+    # 标准化数值稳定项
+    standardize_eps: float
+    # 不同子集规模对应的 nslt JSON 路径映射
+    subset_json_map: dict[int, str]
+
+
+@dataclass(frozen=True)
+class MediapipeConfig:
+    # MediaPipe 模型目录
+    model_dir: str
+    # Pose 模型文件路径
+    pose_model_path: str
+    # Hand 模型文件路径
+    hand_model_path: str
+    # Face 模型文件路径
+    face_model_path: str
+    # Pose 模型下载 URL
+    pose_model_url: str
+    # Hand 模型下载 URL
+    hand_model_url: str
+    # Face 模型下载 URL
+    face_model_url: str
+    # Pose 检测置信度阈值
+    pose_min_det_conf: float
+    # Pose 存在置信度阈值
+    pose_min_presence_conf: float
+    # Pose 跟踪置信度阈值
+    pose_min_track_conf: float
+    # Hand 检测置信度阈值
+    hand_min_det_conf: float
+    # Hand 存在置信度阈值
+    hand_min_presence_conf: float
+    # Hand 跟踪置信度阈值
+    hand_min_track_conf: float
+    # Face 检测置信度阈值
+    face_min_det_conf: float
+    # Face 存在置信度阈值
+    face_min_presence_conf: float
+    # Face 跟踪置信度阈值
+    face_min_track_conf: float
+
+
+@dataclass(frozen=True)
+class ModelConfig:
+    # LSTM 隐藏维度
+    hidden_size: int
+    # LSTM 层数
+    num_layers: int
+    # 是否双向 LSTM
+    bidirectional: bool
+    # 模型级 Dropout
+    dropout: float
+    # 交叉熵标签平滑系数
+    label_smoothing: float
+    # 是否启用注意力机制
+    use_attention: bool
+    # 注意力中间维度
+    attention_dim: int
+
+
+@dataclass(frozen=True)
+class AugmentationConfig:
+    # 旋转角度范围（度）
+    rotation_range: float
+    # 随机缩放下限
+    scale_min: float
+    # 随机缩放上限
+    scale_max: float
+    # 随机平移范围（归一化坐标）
+    translate: float
+    # 高斯噪声标准差
+    noise_std: float
+    # 水平翻转概率
+    hflip_prob: float
+    # 翻转时是否交换左右关键点语义
+    hflip_swap_lr: bool
+    # 零中心坐标翻转策略（x -> -x）
+    hflip_zero_centered: bool
+    # 时间扭曲概率
+    time_warp_prob: float
+    # 时间扭曲最小倍率
+    time_warp_min: float
+    # 时间扭曲最大倍率
+    time_warp_max: float
+    # 随机丢帧概率
+    frame_dropout_prob: float
+    # 最大丢帧比例
+    frame_dropout_max_ratio: float
+
+
+@dataclass(frozen=True)
+class TrainingConfig:
+    # 单卡实际 batch 大小
+    batch_size: int
+    # 初始学习率
+    learning_rate: float
+    # L2 权重衰减
+    weight_decay: float
+    # 最大训练轮数
+    num_epochs: int
+    # 训练设备（"cuda" / "cpu"）
+    device: str
+    # 全局随机种子
+    seed: int
+    # 是否启用 cudnn 确定性模式（提升可复现性）
+    deterministic: bool
+    # 是否启用 cudnn benchmark（提升速度但降低可复现性）
+    cudnn_benchmark: bool
+    # 是否强制使用确定性算子（可能影响性能，必要时可关闭）
+    use_deterministic_algorithms: bool
+    # 模型定期保存间隔
+    save_every_n_epochs: int
+    # 梯度裁剪阈值（<=0 表示关闭）
+    grad_clip_max_norm: float
+    # 梯度累积步数（等效 batch 放大）
+    grad_accum_steps: int
+    # ReduceLROnPlateau 衰减因子
+    scheduler_factor: float
+    # ReduceLROnPlateau patience
+    scheduler_patience: int
+    # 学习率下限
+    scheduler_min_lr: float
+    # 是否启用早停
+    early_stopping_enabled: bool
+    # 早停耐心轮数
+    early_stopping_patience: int
+    # 早停监控指标（val_acc 或 val_loss）
+    early_stopping_metric: str
+    # 早停最小改进阈值
+    early_stopping_min_delta: float
+    # 是否启用类别均衡采样
+    use_weighted_sampler: bool
+    # 采样权重指数（1=逆频率）
+    sampler_power: float
+    # DataLoader worker 数
+    dataloader_num_workers: int
+
+
+@dataclass(frozen=True)
+class InferenceConfig:
+    # 摄像头索引
+    camera_index: int
+    # 摄像头采集宽度
+    camera_width: int
+    # 摄像头采集高度
+    camera_height: int
+    # 摄像头目标帧率
+    camera_fps: int
+    # 推理间隔（每 N 帧推理一次）
+    inference_interval: int
+
+
+@dataclass(frozen=True)
+class UIConfig:
+    # 中文字体候选路径（按顺序尝试）
+    chinese_font_paths: tuple[str, ...]
+    # 主文本字号
+    font_size: int
+    # 次级文本字号
+    font_small_size: int
+    # 退出按钮文案
+    exit_button_text: str
+    # 退出按钮尺寸
+    exit_button_size: tuple[int, int]
+    # 退出按钮边距（右、上）
+    exit_button_margin: tuple[int, int]
+    # 骨骼开关文案（显示中）
+    skeleton_button_text_on: str
+    # 骨骼开关文案（隐藏中）
+    skeleton_button_text_off: str
+    # 骨骼开关按钮尺寸
+    skeleton_button_size: tuple[int, int]
+    # 骨骼开关与退出按钮间距
+    skeleton_button_gap: int
+    # 关键点半径
+    skeleton_point_radius: int
+    # 关键点颜色（BGR）
+    skeleton_point_color: tuple[int, int, int]
+    # 骨架线颜色（BGR）
+    skeleton_line_color: tuple[int, int, int]
+    # 骨架线宽
+    skeleton_line_thickness: int
+
+
+_processed_data_dir = os.path.join(
+    _PROJECT_ROOT,  # 项目根目录
+    "dataset",  # 数据目录
+    "processed",  # 预处理数据目录
+    f"WLASL{_DATASET_SCALE}",  # 按数据规模分子目录
 )
-# 标签映射文件路径 (JSON格式)
-LABEL_MAP_PATH = os.path.join(
-    PROCESSED_DATA_DIR, f"wlasl_{DATASET_SCALE}_maplabels.json"
+
+
+PATHS = PathsConfig(
+    project_root=_PROJECT_ROOT,  # 项目根目录
+    dataset_scale=_DATASET_SCALE,  # 当前使用数据规模
+    processed_data_dir=_processed_data_dir,  # 预处理后数据根目录
+    label_map_path=os.path.join(
+        _processed_data_dir, f"wlasl_{_DATASET_SCALE}_maplabels.json"
+    ),  # 标签映射路径
+    train_data_path=os.path.join(
+        _processed_data_dir, f"WLASL{_DATASET_SCALE}_135-Train.hdf5"
+    ),  # 训练集 HDF5
+    val_data_path=os.path.join(
+        _processed_data_dir, f"WLASL{_DATASET_SCALE}_135-Val.hdf5"
+    ),  # 验证集 HDF5
+    test_data_path=os.path.join(
+        _processed_data_dir, f"WLASL{_DATASET_SCALE}_135-Test.hdf5"
+    ),  # 测试集 HDF5
+    model_save_dir=os.path.join(_PROJECT_ROOT, "src", "checkpoints"),  # 模型保存目录
+    test_model_path=os.path.join(
+        _PROJECT_ROOT, "src", "checkpoints", "best_model.pth"
+    ),  # 默认评估模型路径
+    raw_data_dir=os.path.join(_PROJECT_ROOT, "dataset", "raw"),  # 原始数据目录
+    videoid_word_dir=os.path.join(
+        _PROJECT_ROOT, "dataset", "videoId_word"
+    ),  # videoId_word 目录
+    default_json_path=os.path.join(
+        _PROJECT_ROOT, "dataset", "raw", "WLASL_v0.3.json"
+    ),  # 默认元数据 JSON
+    wlasl_gloss_json=os.path.join(
+        _PROJECT_ROOT, "dataset", "videoId_word", "WLASL_v0.3.json"
+    ),  # gloss 映射 JSON
+    default_video_dir=os.path.join(
+        _PROJECT_ROOT, "dataset", "raw", f"WLASL{_DATASET_SCALE}"
+    ),  # 默认视频目录
+    default_output_dir=os.path.join(
+        _PROJECT_ROOT, "dataset", "processed"
+    ),  # 默认输出根目录
+    default_output_prefix="WLASL",  # 默认文件名前缀
+    log_dir=os.path.join(_PROJECT_ROOT, "logs"),  # 日志目录
 )
 
-# 训练、验证和测试集的 HDF5 文件路径
-TRAIN_DATA_PATH = os.path.join(
-    PROCESSED_DATA_DIR, f"WLASL{DATASET_SCALE}_135-Train.hdf5"
+
+SEQUENCE = SequenceConfig(
+    max_frames=90,  # 统一帧长
+    num_landmarks=135,  # 关键点数量
+    enable_accel_feature=False,  # 先关闭 ddx/ddy，保持稳定
+    base_feature_channels=("x", "y", "dx", "dy"),  # 当前基础通道
 )
-VAL_DATA_PATH = os.path.join(PROCESSED_DATA_DIR, f"WLASL{DATASET_SCALE}_135-Val.hdf5")
-TEST_DATA_PATH = os.path.join(PROCESSED_DATA_DIR, f"WLASL{DATASET_SCALE}_135-Test.hdf5")
 
-# 模型检查点保存目录
-MODEL_SAVE_DIR = os.path.join(PROJECT_ROOT, "src", "checkpoints")
-os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
 
-# 测试/评估时使用的模型路径
-TEST_MODEL_PATH = os.path.join(MODEL_SAVE_DIR, "best_model.pth")
-
-# --- 数据处理配置 ---
-# 预处理流水线版本标识
-PREPROCESS_PIPELINE_VERSION = "v3"
-# 是否保存预处理调试信息（质量统计、过滤日志等）
-SAVE_PREPROCESS_DEBUG = True
-
-# 序列最大帧数 (超出重采样，不足补零)
-MAX_FRAMES = 90
-# 是否启用加速度特征 (ddx, ddy)
-ENABLE_ACCEL_FEATURE = False
-# 基础通道 (保留当前 dx, dy 管道)
-BASE_FEATURE_CHANNELS = ["x", "y", "dx", "dy"]
-if ENABLE_ACCEL_FEATURE:
-    BASE_FEATURE_CHANNELS = BASE_FEATURE_CHANNELS + ["ddx", "ddy"]
-
-# 关键点维度（由通道数自动计算）
-LANDMARK_DIM = len(BASE_FEATURE_CHANNELS)
-# 关键点数量
-NUM_LANDMARKS = 135
-# 模型输入维度 (关键点数量 * 通道数)
-INPUT_SIZE = LANDMARK_DIM * NUM_LANDMARKS
-# 类别数量，对应数据集规模
-NUM_CLASSES = DATASET_SCALE
-
-# --- 预处理脚本相关路径与参数 ---
-RAW_DATA_DIR = os.path.join(PROJECT_ROOT, "dataset", "raw")
-VIDEOID_WORD_DIR = os.path.join(PROJECT_ROOT, "dataset", "videoId_word")
-DEFAULT_JSON_PATH = os.path.join(RAW_DATA_DIR, "WLASL_v0.3.json")
-# WLASL_v0.3.json 用于获取 gloss 标签映射
-WLASL_GLOSS_JSON = os.path.join(VIDEOID_WORD_DIR, "WLASL_v0.3.json")
-DEFAULT_VIDEO_DIR = os.path.join(RAW_DATA_DIR, f"WLASL{DATASET_SCALE}")
-DEFAULT_OUTPUT_DIR = os.path.join(PROJECT_ROOT, "dataset", "processed")
-DEFAULT_OUTPUT_PREFIX = "WLASL"
-DEFAULT_LIMIT = None
-# 多进程处理配置 (设为 1 禁用多进程，None 自动检测 CPU 核心数)
-NUM_WORKERS = None
-
-# 缺失补全与质量控制
-ENABLE_MISSING_INTERP = True
-# 仅插值长度不超过该阈值的缺失段
-INTERP_MAX_GAP = 8
-# 样本最低有效关键点比例阈值
-MIN_VALID_RATIO_PER_SAMPLE = 0.35
-# 单帧最少有效关键点数（用于判断检测是否有效）
-MIN_VALID_KEYPOINTS_PER_FRAME = 5
-
-# 归一化与平滑
-ENABLE_SHOULDER_AXIS_ALIGN = True
-SCALE_MODE = "shoulder_torso_fusion"
-NORMALIZE_EPS = 1e-6
-ENABLE_XY_SMOOTH = True
-SMOOTH_METHOD = "ema"
-SMOOTH_EMA_ALPHA = 0.35
-
-# 标准化（train-only 统计）
-ENABLE_STANDARDIZE = True
-FEATURE_STATS_PATH = os.path.join(
-    PROCESSED_DATA_DIR, f"WLASL{DATASET_SCALE}_train_stats.json"
+PREPROCESS = PreprocessConfig(
+    pipeline_version="v3",  # 预处理版本
+    save_debug=True,  # 输出调试信息
+    num_workers=None,  # None=自动核数
+    enable_missing_interp=True,  # 启用短缺失插值
+    interp_max_gap=8,  # 最大插值缺失段长度
+    min_valid_ratio_per_sample=0.35,  # 样本有效率阈值
+    min_valid_keypoints_per_frame=5,  # 实时推理帧有效点阈值
+    enable_shoulder_axis_align=True,  # 启用肩轴对齐
+    scale_mode="shoulder_torso_fusion",  # 尺度归一化策略
+    normalize_eps=1e-6,  # 归一化稳定项
+    enable_xy_smooth=True,  # 启用平滑
+    smooth_method="ema",  # 平滑方法
+    smooth_ema_alpha=0.35,  # EMA 系数
+    enable_standardize=True,  # 启用标准化
+    feature_stats_path=os.path.join(
+        _processed_data_dir, f"WLASL{_DATASET_SCALE}_train_stats.json"
+    ),  # 训练统计量路径
+    standardize_eps=1e-6,  # 标准化稳定项
+    subset_json_map={
+        100: os.path.join(
+            PATHS.raw_data_dir, "WLASL100", "nslt_100.json"
+        ),  # WLASL100 子集 JSON
+        300: os.path.join(
+            PATHS.raw_data_dir, "WLASL300", "nslt_300.json"
+        ),  # WLASL300 子集 JSON
+        1000: os.path.join(
+            PATHS.raw_data_dir, "WLASL1000", "nslt_1000.json"
+        ),  # WLASL1000 子集 JSON
+        2000: os.path.join(
+            PATHS.raw_data_dir, "WLASL2000", "nslt_2000.json"
+        ),  # WLASL2000 子集 JSON
+    },
 )
-STANDARDIZE_EPS = 1e-6
 
-# 子集 JSON 映射
-SUBSET_JSON_MAP = {
-    100: os.path.join(RAW_DATA_DIR, "WLASL100", "nslt_100.json"),
-    300: os.path.join(RAW_DATA_DIR, "WLASL300", "nslt_300.json"),
-    1000: os.path.join(RAW_DATA_DIR, "WLASL1000", "nslt_1000.json"),
-    2000: os.path.join(RAW_DATA_DIR, "WLASL2000", "nslt_2000.json"),
-}
 
-# Mediapipe 模型与阈值
-MODEL_DIR = os.path.join(PROJECT_ROOT, "src", "mediapipe_models")
-POSE_MODEL_PATH = os.path.join(MODEL_DIR, "pose_landmarker_heavy.task")
-HAND_MODEL_PATH = os.path.join(MODEL_DIR, "hand_landmarker.task")
-FACE_MODEL_PATH = os.path.join(MODEL_DIR, "face_landmarker.task")
+MEDIAPIPE = MediapipeConfig(
+    model_dir=os.path.join(_PROJECT_ROOT, "src", "mediapipe_models"),  # 模型目录
+    pose_model_path=os.path.join(
+        _PROJECT_ROOT, "src", "mediapipe_models", "pose_landmarker_heavy.task"
+    ),  # Pose 模型路径
+    hand_model_path=os.path.join(
+        _PROJECT_ROOT, "src", "mediapipe_models", "hand_landmarker.task"
+    ),  # Hand 模型路径
+    face_model_path=os.path.join(
+        _PROJECT_ROOT, "src", "mediapipe_models", "face_landmarker.task"
+    ),  # Face 模型路径
+    pose_model_url="https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task",  # Pose 下载地址
+    hand_model_url="https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",  # Hand 下载地址
+    face_model_url="https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",  # Face 下载地址
+    pose_min_det_conf=0.5,  # Pose 检测阈值
+    pose_min_presence_conf=0.5,  # Pose 存在阈值
+    pose_min_track_conf=0.5,  # Pose 跟踪阈值
+    hand_min_det_conf=0.5,  # Hand 检测阈值
+    hand_min_presence_conf=0.5,  # Hand 存在阈值
+    hand_min_track_conf=0.5,  # Hand 跟踪阈值
+    face_min_det_conf=0.5,  # Face 检测阈值
+    face_min_presence_conf=0.5,  # Face 存在阈值
+    face_min_track_conf=0.5,  # Face 跟踪阈值
+)
 
-POSE_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task"
-HAND_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
-FACE_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
 
-POSE_MIN_DET_CONF = 0.5
-POSE_MIN_PRESENCE_CONF = 0.5
-POSE_MIN_TRACK_CONF = 0.5
+MODEL = ModelConfig(
+    hidden_size=128,  # LSTM 隐藏维度
+    num_layers=2,  # LSTM 层数
+    bidirectional=True,  # 双向 LSTM
+    dropout=0.35,  # Dropout（略降以配合新策略）
+    label_smoothing=0.05,  # 标签平滑
+    use_attention=True,  # 使用注意力
+    attention_dim=32,  # 注意力维度
+)
 
-HAND_MIN_DET_CONF = 0.5
-HAND_MIN_PRESENCE_CONF = 0.5
-HAND_MIN_TRACK_CONF = 0.5
 
-FACE_MIN_DET_CONF = 0.5
-FACE_MIN_PRESENCE_CONF = 0.5
-FACE_MIN_TRACK_CONF = 0.5
+AUGMENTATION = AugmentationConfig(
+    rotation_range=20.0,  # 随机旋转角度范围
+    scale_min=0.85,  # 缩放下限
+    scale_max=1.15,  # 缩放上限
+    translate=0.12,  # 平移幅度
+    noise_std=0.004,  # 噪声强度
+    hflip_prob=0.30,  # 水平翻转概率
+    hflip_swap_lr=True,  # 翻转后交换左右语义
+    hflip_zero_centered=True,  # 零中心翻转策略
+    time_warp_prob=0.20,  # 时间扭曲概率
+    time_warp_min=0.90,  # 时间扭曲下限
+    time_warp_max=1.10,  # 时间扭曲上限
+    frame_dropout_prob=0.15,  # 丢帧概率
+    frame_dropout_max_ratio=0.10,  # 最大丢帧比例
+)
 
-# --- 模型超参数 ---
-# 隐藏层维度
-HIDDEN_SIZE = 128
-# LSTM 层数
-NUM_LAYERS = 2
-# 是否使用双向 LSTM
-BIDIRECTIONAL = True
-# 随机丢弃率 (Dropout)
-DROPOUT = 0.4
-# 标签平滑 (Label Smoothing)
-LABEL_SMOOTHING = 0.1
 
-# --- Attention 机制配置 ---
-# 是否启用 Attention 机制
-USE_ATTENTION = True
-# Attention 隐藏层维度 (用于计算注意力权重)
-ATTENTION_DIM = 32
+TRAINING = TrainingConfig(
+    batch_size=4,  # 单步 batch
+    learning_rate=1e-3,  # 初始学习率
+    weight_decay=1e-3,  # L2 正则
+    num_epochs=500,  # 最大轮数
+    device="cuda",  # 期望设备
+    seed=42,  # 随机种子
+    deterministic=True,  # 启用确定性模式，便于复现实验
+    cudnn_benchmark=False,  # 关闭 benchmark，避免引入非确定性
+    use_deterministic_algorithms=False,  # 默认不强制全部算子确定性
+    save_every_n_epochs=5,  # 定期保存间隔
+    grad_clip_max_norm=1.0,  # 梯度裁剪
+    grad_accum_steps=4,  # 梯度累积步数
+    scheduler_factor=0.5,  # 学习率衰减比例
+    scheduler_patience=10,  # 学习率调度耐心
+    scheduler_min_lr=1e-6,  # 最小学习率
+    early_stopping_enabled=True,  # 启用早停
+    early_stopping_patience=30,  # 早停耐心
+    early_stopping_metric="val_acc",  # 早停监控指标
+    early_stopping_min_delta=0.0,  # 最小改进阈值
+    use_weighted_sampler=True,  # 启用类别均衡采样
+    sampler_power=1.0,  # 采样权重指数
+    dataloader_num_workers=0,  # DataLoader worker
+)
 
-# --- 数据增强配置（适度增强，防止过拟合但不过度破坏分布） ---
-# 旋转范围 (度)
-AUG_ROTATION_RANGE = 20
-# 缩放范围
-AUG_SCALE_MIN = 0.85
-AUG_SCALE_MAX = 1.15
-# 平移范围 (坐标归一化到 0~1)
-AUG_TRANSLATE = 0.12
-# 高斯噪声标准差
-AUG_NOISE_STD = 0.004
-# 水平翻转概率
-AUG_HFLIP_PROB = 0.30
-# 水平翻转时是否交换左右关键点语义
-AUG_HFLIP_SWAP_LR = True
-# 零中心坐标翻转策略：x -> -x
-AUG_HFLIP_ZERO_CENTERED = True
 
-# 时序增强
-AUG_TIME_WARP_PROB = 0.20
-AUG_TIME_WARP_MIN = 0.90
-AUG_TIME_WARP_MAX = 1.10
-AUG_FRAME_DROPOUT_PROB = 0.15
-AUG_FRAME_DROPOUT_MAX_RATIO = 0.10
+INFERENCE = InferenceConfig(
+    camera_index=0,  # 摄像头编号
+    camera_width=640,  # 摄像头宽度
+    camera_height=480,  # 摄像头高度
+    camera_fps=60,  # 摄像头帧率
+    inference_interval=1,  # 推理间隔
+)
 
-# --- 训练超参数 ---
-# 批处理大小
-BATCH_SIZE = 4
-# 学习率
-LEARNING_RATE = 1e-3
-# L2 正则化 (权重衰减)
-WEIGHT_DECAY = 1e-3
-# 训练轮数
-NUM_EPOCHS = 500
-# 训练设备 (程序中会自动检查 GPU 可用性)
-DEVICE = "cuda"
 
-# 摄像头索引（实时推理使用）
-CAMERA_INDEX = 0
-# 摄像头分辨率（降低可提高帧率）
-CAMERA_WIDTH = 640
-CAMERA_HEIGHT = 480
-# 摄像头目标帧率
-CAMERA_FPS = 60
-# 推理间隔（每隔多少帧进行一次模型推理，1=每帧都推理，2=隔一帧推理）
-INFERENCE_INTERVAL = 1
+UI = UIConfig(
+    chinese_font_paths=(
+        r"C:\Windows\Fonts\msyh.ttc",  # 微软雅黑
+        r"C:\Windows\Fonts\simhei.ttf",  # 黑体
+    ),
+    font_size=32,  # 主文本字号
+    font_small_size=26,  # 次级文本字号
+    exit_button_text="退出",  # 退出按钮文案
+    exit_button_size=(90, 40),  # 退出按钮尺寸
+    exit_button_margin=(12, 12),  # 退出按钮边距
+    skeleton_button_text_on="隐藏骨骼",  # 骨骼按钮文案（当前显示）
+    skeleton_button_text_off="显示骨骼",  # 骨骼按钮文案（当前隐藏）
+    skeleton_button_size=(110, 40),  # 骨骼按钮尺寸
+    skeleton_button_gap=10,  # 按钮间距
+    skeleton_point_radius=3,  # 关键点半径
+    skeleton_point_color=(0, 255, 0),  # 关键点颜色
+    skeleton_line_color=(255, 255, 0),  # 骨架线颜色
+    skeleton_line_thickness=1,  # 骨架线宽
+)
 
-# --- UI/显示配置 ---
-# 中文字体候选路径（按顺序尝试找到可用字体）
-CHINESE_FONT_PATHS = [
-    r"C:\\Windows\\Fonts\\msyh.ttc",  # 微软雅黑
-    r"C:\\Windows\\Fonts\\simhei.ttf",  # 黑体
-]
-# 叠加文本字号
-UI_FONT_SIZE = 32
-UI_FONT_SMALL_SIZE = 26
-# 退出按钮文字与尺寸
-EXIT_BUTTON_TEXT = "退出"
-EXIT_BUTTON_SIZE = (90, 40)  # (width, height)
-EXIT_BUTTON_MARGIN = (12, 12)  # (right_margin, top_margin)
 
-# 骨骼显示切换按钮配置
-SKELETON_BUTTON_TEXT_ON = "隐藏骨骼"
-SKELETON_BUTTON_TEXT_OFF = "显示骨骼"
-SKELETON_BUTTON_SIZE = (110, 40)  # (width, height)
-SKELETON_BUTTON_GAP = 10  # 与退出按钮的间距
-
-# 骨骼绘制样式
-SKELETON_POINT_RADIUS = 3
-SKELETON_POINT_COLOR = (0, 255, 0)  # BGR: 绿色
-SKELETON_LINE_COLOR = (255, 255, 0)  # BGR: 青色
-SKELETON_LINE_THICKNESS = 1
+# 确保模型目录存在，避免训练保存时报错
+os.makedirs(PATHS.model_save_dir, exist_ok=True)

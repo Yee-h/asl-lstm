@@ -31,7 +31,7 @@ from src.data_process.preprocess_wlasl import KeypointExtractor
 
 def load_label_map_inverse() -> dict:
     """读取并反转标签映射，返回 {id: label} 字典。"""
-    with open(cfg.LABEL_MAP_PATH, "r", encoding="utf-8") as f:
+    with open(cfg.PATHS.label_map_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     if "id_to_label" in data:
@@ -56,7 +56,7 @@ def load_label_map_inverse() -> dict:
 
 def load_chinese_font(size: int):
     """按配置路径顺序加载可用的中文字体，失败则回退默认字体。"""
-    for path in cfg.CHINESE_FONT_PATHS:
+    for path in cfg.UI.chinese_font_paths:
         if path and os.path.exists(path):
             try:
                 return ImageFont.truetype(path, size)
@@ -90,10 +90,10 @@ def draw_overlay_with_buttons(
     text_y2 = text_y1 + font_main.size + 8
     draw.text((text_x, text_y2), f"FPS：{fps:.1f}", font=font_small, fill=(255, 255, 0))
 
-    margin_r, margin_t = cfg.EXIT_BUTTON_MARGIN
+    margin_r, margin_t = cfg.UI.exit_button_margin
 
     # 退出按钮（右上角最右侧）
-    exit_w, exit_h = cfg.EXIT_BUTTON_SIZE
+    exit_w, exit_h = cfg.UI.exit_button_size
     exit_x1 = w - exit_w - margin_r
     exit_y1 = margin_t
     exit_x2 = exit_x1 + exit_w
@@ -105,24 +105,29 @@ def draw_overlay_with_buttons(
         outline=(0, 0, 0),
         width=2,
     )
-    bbox = draw.textbbox((0, 0), cfg.EXIT_BUTTON_TEXT, font=font_small)
+    bbox = draw.textbbox((0, 0), cfg.UI.exit_button_text, font=font_small)
     text_w = bbox[2] - bbox[0]
     text_h = bbox[3] - bbox[1]
     text_x_btn = exit_x1 + (exit_w - text_w) // 2
     text_y_btn = exit_y1 + (exit_h - text_h) // 2
     draw.text(
-        (text_x_btn, text_y_btn), cfg.EXIT_BUTTON_TEXT, font=font_small, fill=(0, 0, 0)
+        (text_x_btn, text_y_btn),
+        cfg.UI.exit_button_text,
+        font=font_small,
+        fill=(0, 0, 0),
     )
 
     # 骨骼切换按钮（退出按钮左侧）
-    skel_w, skel_h = cfg.SKELETON_BUTTON_SIZE
-    skel_x2 = exit_x1 - cfg.SKELETON_BUTTON_GAP
+    skel_w, skel_h = cfg.UI.skeleton_button_size
+    skel_x2 = exit_x1 - cfg.UI.skeleton_button_gap
     skel_x1 = skel_x2 - skel_w
     skel_y1 = margin_t
     skel_y2 = skel_y1 + skel_h
 
     skel_btn_text = (
-        cfg.SKELETON_BUTTON_TEXT_ON if show_skeleton else cfg.SKELETON_BUTTON_TEXT_OFF
+        cfg.UI.skeleton_button_text_on
+        if show_skeleton
+        else cfg.UI.skeleton_button_text_off
     )
     btn_fill = (200, 255, 200) if show_skeleton else (245, 245, 245)
     draw.rectangle(
@@ -211,10 +216,10 @@ def draw_skeleton(frame: np.ndarray, keypoints: np.ndarray) -> np.ndarray:
         (13, 17),  # 掌心连接
     ]
 
-    point_color = cfg.SKELETON_POINT_COLOR
-    line_color = cfg.SKELETON_LINE_COLOR
-    radius = cfg.SKELETON_POINT_RADIUS
-    thickness = cfg.SKELETON_LINE_THICKNESS
+    point_color = cfg.UI.skeleton_point_color
+    line_color = cfg.UI.skeleton_line_color
+    radius = cfg.UI.skeleton_point_radius
+    thickness = cfg.UI.skeleton_line_thickness
 
     def get_point(idx: int) -> Tuple[int, int] | None:
         """获取关键点像素坐标，无效点返回 None"""
@@ -279,10 +284,10 @@ def prepare_sequence(
     复用 dataloader.py 中的 preprocess_keypoints 函数。
 
     Args:
-        frame_buffer: 存放 (2, 135) 关键点的队列，长度不超过 cfg.MAX_FRAMES。
+        frame_buffer: 存放 (2, 135) 关键点的队列，长度不超过 cfg.SEQUENCE.max_frames。
 
     Returns:
-        inputs: 形状为 (1, cfg.MAX_FRAMES, cfg.INPUT_SIZE) 的张量。
+        inputs: 形状为 (1, cfg.SEQUENCE.max_frames, cfg.SEQUENCE.input_size) 的张量。
         lengths: 形状为 (1,) 的张量，表示有效帧长度。
     """
     if not frame_buffer:
@@ -292,7 +297,7 @@ def prepare_sequence(
     data = np.stack(frame_buffer)
 
     # 复用 dataloader 中的预处理函数
-    data_tensor, valid_len = preprocess_keypoints(data, cfg.MAX_FRAMES)
+    data_tensor, valid_len = preprocess_keypoints(data, cfg.SEQUENCE.max_frames)
 
     # 添加 batch 维度
     inputs = data_tensor.unsqueeze(0)  # (1, max_frames, input_size)
@@ -305,12 +310,12 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
     使用摄像头与预训练模型进行实时手语分类。
 
     Args:
-        camera_index: 摄像头索引，默认使用 cfg.CAMERA_INDEX。
+        camera_index: 摄像头索引，默认使用 cfg.INFERENCE.camera_index。
 
     按下键盘 "q" 或点击右上角按钮退出。
     """
     device = torch.device(
-        "cuda" if torch.cuda.is_available() and cfg.DEVICE == "cuda" else "cpu"
+        "cuda" if torch.cuda.is_available() and cfg.TRAINING.device == "cuda" else "cpu"
     )
     print(f"当前使用的设备: {device}")
 
@@ -320,8 +325,8 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
         print("警告: 标签映射为空，将直接输出类别 ID。")
 
     # 加载模型
-    model = get_model(use_attention=cfg.USE_ATTENTION).to(device)
-    model_path = cfg.TEST_MODEL_PATH
+    model = get_model(use_attention=cfg.MODEL.use_attention).to(device)
+    model_path = cfg.PATHS.test_model_path
     if not os.path.exists(model_path):
         print(f"错误: 未找到预训练模型文件: {model_path}")
         return
@@ -329,15 +334,15 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
     state_dict = torch.load(model_path, map_location=device)
     model.load_state_dict(state_dict)
     model.eval()
-    model_name = "BiLSTM+Attention" if cfg.USE_ATTENTION else "BiLSTM"
+    model_name = "BiLSTM+Attention" if cfg.MODEL.use_attention else "BiLSTM"
     print(f"已加载模型: {model_name} -> {os.path.basename(model_path)}")
 
     # 初始化关键点提取器
     extractor = KeypointExtractor()
 
     # 加载中文字体
-    font_main = load_chinese_font(cfg.UI_FONT_SIZE)
-    font_small = load_chinese_font(cfg.UI_FONT_SMALL_SIZE)
+    font_main = load_chinese_font(cfg.UI.font_size)
+    font_small = load_chinese_font(cfg.UI.font_small_size)
 
     # 窗口与鼠标回调（用于退出按钮和骨骼切换按钮）
     window_name = "Real-time Sign Prediction"
@@ -351,13 +356,13 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
     cv2.setMouseCallback(window_name, on_mouse, mouse_state)
 
     # 摄像头输入
-    cam_idx = cfg.CAMERA_INDEX if camera_index is None else camera_index
+    cam_idx = cfg.INFERENCE.camera_index if camera_index is None else camera_index
     cap = cv2.VideoCapture(cam_idx)
 
     # 设置摄像头参数以提高帧率
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, cfg.CAMERA_WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg.CAMERA_HEIGHT)
-    cap.set(cv2.CAP_PROP_FPS, cfg.CAMERA_FPS)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, cfg.INFERENCE.camera_width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg.INFERENCE.camera_height)
+    cap.set(cv2.CAP_PROP_FPS, cfg.INFERENCE.camera_fps)
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # 减小缓冲区降低延迟
 
     if not cap.isOpened():
@@ -370,7 +375,7 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
     actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"摄像头设置: {actual_w}x{actual_h} @ {actual_fps:.1f} FPS")
 
-    frame_buffer: Deque[np.ndarray] = deque(maxlen=cfg.MAX_FRAMES)
+    frame_buffer: Deque[np.ndarray] = deque(maxlen=cfg.SEQUENCE.max_frames)
     last_result: Tuple[str, float] | None = None
 
     print('\n实时推理已启动，按 "q" 退出。\n')
@@ -397,14 +402,18 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
                 keypoints_valid = False
                 if keypoints is not None and valid_mask is not None:
                     valid_count = int(np.sum(valid_mask))
-                    keypoints_valid = valid_count >= cfg.MIN_VALID_KEYPOINTS_PER_FRAME
+                    keypoints_valid = (
+                        valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame
+                    )
 
                 # 只有检测到有效骨骼点时才更新 buffer
                 if keypoints_valid and keypoints is not None:
                     frame_buffer.append(keypoints)
 
                     # 按间隔进行模型推理以提高帧率
-                    if frame_buffer and (frame_count % cfg.INFERENCE_INTERVAL == 0):
+                    if frame_buffer and (
+                        frame_count % cfg.INFERENCE.inference_interval == 0
+                    ):
                         inputs, lengths = prepare_sequence(frame_buffer)
                         inputs = inputs.to(device)
                         lengths = lengths.to(device)

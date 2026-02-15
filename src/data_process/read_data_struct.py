@@ -34,7 +34,7 @@ def _enable_utf8_console_output() -> None:
 
 
 def _default_data_root() -> Path:
-    return Path(cfg.PROJECT_ROOT) / "dataset" / "processed"
+    return Path(cfg.PATHS.project_root) / "dataset" / "processed"
 
 
 def _build_file_path(dataset: str, split: str, data_root: Path | None = None) -> Path:

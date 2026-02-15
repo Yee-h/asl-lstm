@@ -21,7 +21,9 @@ def main():
 
     # Load dataset with augmentation
     print("\nLoading training dataset with augmentation=True...")
-    train_dataset = CSLDataset(cfg.TRAIN_DATA_PATH, cfg.LABEL_MAP_PATH, augment=True)
+    train_dataset = CSLDataset(
+        cfg.PATHS.train_data_path, cfg.PATHS.label_map_path, augment=True
+    )
 
     # Get same sample multiple times
     idx = 0
@@ -47,7 +49,9 @@ def main():
 
     # Test validation dataset (should NOT have augmentation)
     print("\n\nLoading validation dataset with augmentation=False...")
-    val_dataset = CSLDataset(cfg.VAL_DATA_PATH, cfg.LABEL_MAP_PATH, augment=False)
+    val_dataset = CSLDataset(
+        cfg.PATHS.val_data_path, cfg.PATHS.label_map_path, augment=False
+    )
 
     val_samples = []
     print(f"Getting validation sample 0 twice:")

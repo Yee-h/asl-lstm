@@ -69,34 +69,34 @@ from mediapipe.tasks.python import vision
 # - 1000: 使用 WLASL1000 子集 (1000 个类别)
 # - 2000: 使用 WLASL2000 子集 (2000 个类别)
 # - None: 使用完整数据集 (WLASL_v0.3.json)
-DEFAULT_SUBSET = getattr(cfg, "DATASET_SCALE", 100)  # 修改此值选择数据集规模
+DEFAULT_SUBSET = cfg.PATHS.dataset_scale  # 修改此值选择数据集规模
 
 # 输入输出路径配置（从 config 导入）
-DEFAULT_JSON_PATH = cfg.DEFAULT_JSON_PATH
-DEFAULT_VIDEO_DIR = cfg.DEFAULT_VIDEO_DIR
-DEFAULT_OUTPUT_DIR = cfg.DEFAULT_OUTPUT_DIR
-DEFAULT_OUTPUT_PREFIX = cfg.DEFAULT_OUTPUT_PREFIX
+DEFAULT_JSON_PATH = cfg.PATHS.default_json_path
+DEFAULT_VIDEO_DIR = cfg.PATHS.default_video_dir
+DEFAULT_OUTPUT_DIR = cfg.PATHS.default_output_dir
+DEFAULT_OUTPUT_PREFIX = cfg.PATHS.default_output_prefix
 
 # 处理数量限制：设置为 None 处理全部，或设置具体数字限制处理数量
-DEFAULT_LIMIT = cfg.DEFAULT_LIMIT
+DEFAULT_LIMIT = None
 
 # ============== 以下配置通常无需修改（集中于 config.py） ==============
 # 数据集规模映射 (subset -> JSON 文件)
-SUBSET_JSON_MAP = cfg.SUBSET_JSON_MAP
+SUBSET_JSON_MAP = cfg.PREPROCESS.subset_json_map
 
 # 目标关键点数量 (WLASL 官方格式)
-TARGET_KEYPOINTS = cfg.NUM_LANDMARKS
+TARGET_KEYPOINTS = cfg.SEQUENCE.num_landmarks
 
 # 模型文件路径
-MODEL_DIR = cfg.MODEL_DIR
-POSE_MODEL_PATH = cfg.POSE_MODEL_PATH
-HAND_MODEL_PATH = cfg.HAND_MODEL_PATH
-FACE_MODEL_PATH = cfg.FACE_MODEL_PATH
+MODEL_DIR = cfg.MEDIAPIPE.model_dir
+POSE_MODEL_PATH = cfg.MEDIAPIPE.pose_model_path
+HAND_MODEL_PATH = cfg.MEDIAPIPE.hand_model_path
+FACE_MODEL_PATH = cfg.MEDIAPIPE.face_model_path
 
 # 模型下载 URL
-POSE_MODEL_URL = cfg.POSE_MODEL_URL
-HAND_MODEL_URL = cfg.HAND_MODEL_URL
-FACE_MODEL_URL = cfg.FACE_MODEL_URL
+POSE_MODEL_URL = cfg.MEDIAPIPE.pose_model_url
+HAND_MODEL_URL = cfg.MEDIAPIPE.hand_model_url
+FACE_MODEL_URL = cfg.MEDIAPIPE.face_model_url
 
 
 def download_model(url: str, path: str) -> None:
@@ -131,9 +131,9 @@ class KeypointExtractor:
             base_options=python.BaseOptions(model_asset_path=POSE_MODEL_PATH),
             running_mode=vision.RunningMode.IMAGE,
             num_poses=1,
-            min_pose_detection_confidence=cfg.POSE_MIN_DET_CONF,
-            min_pose_presence_confidence=cfg.POSE_MIN_PRESENCE_CONF,
-            min_tracking_confidence=cfg.POSE_MIN_TRACK_CONF,
+            min_pose_detection_confidence=cfg.MEDIAPIPE.pose_min_det_conf,
+            min_pose_presence_confidence=cfg.MEDIAPIPE.pose_min_presence_conf,
+            min_tracking_confidence=cfg.MEDIAPIPE.pose_min_track_conf,
         )
         self.pose_detector = vision.PoseLandmarker.create_from_options(pose_options)
 
@@ -142,9 +142,9 @@ class KeypointExtractor:
             base_options=python.BaseOptions(model_asset_path=HAND_MODEL_PATH),
             running_mode=vision.RunningMode.IMAGE,
             num_hands=2,
-            min_hand_detection_confidence=cfg.HAND_MIN_DET_CONF,
-            min_hand_presence_confidence=cfg.HAND_MIN_PRESENCE_CONF,
-            min_tracking_confidence=cfg.HAND_MIN_TRACK_CONF,
+            min_hand_detection_confidence=cfg.MEDIAPIPE.hand_min_det_conf,
+            min_hand_presence_confidence=cfg.MEDIAPIPE.hand_min_presence_conf,
+            min_tracking_confidence=cfg.MEDIAPIPE.hand_min_track_conf,
         )
         self.hand_detector = vision.HandLandmarker.create_from_options(hand_options)
 
@@ -153,9 +153,9 @@ class KeypointExtractor:
             base_options=python.BaseOptions(model_asset_path=FACE_MODEL_PATH),
             running_mode=vision.RunningMode.IMAGE,
             num_faces=1,
-            min_face_detection_confidence=cfg.FACE_MIN_DET_CONF,
-            min_face_presence_confidence=cfg.FACE_MIN_PRESENCE_CONF,
-            min_tracking_confidence=cfg.FACE_MIN_TRACK_CONF,
+            min_face_detection_confidence=cfg.MEDIAPIPE.face_min_det_conf,
+            min_face_presence_confidence=cfg.MEDIAPIPE.face_min_presence_conf,
+            min_tracking_confidence=cfg.MEDIAPIPE.face_min_track_conf,
         )
         self.face_detector = vision.FaceLandmarker.create_from_options(face_options)
 
@@ -430,13 +430,13 @@ class PreprocessHelper:
         else:
             masks = raw_masks.astype(np.uint8)
 
-        if cfg.ENABLE_MISSING_INTERP:
+        if cfg.PREPROCESS.enable_missing_interp:
             data, masks = self._interpolate_missing_short_gaps(data, masks)
 
-        if cfg.ENABLE_XY_SMOOTH:
+        if cfg.PREPROCESS.enable_xy_smooth:
             data = self._smooth_xy(data, masks)
 
-        if cfg.ENABLE_SHOULDER_AXIS_ALIGN:
+        if cfg.PREPROCESS.enable_shoulder_axis_align:
             data = self._align_shoulder_axis(data, masks)
 
         norm_data = self._normalize_with_mask(data, masks)
@@ -444,7 +444,7 @@ class PreprocessHelper:
         norm_data, masks, valid_len = self._resample_if_long(norm_data, masks)
 
         feature_data = self._add_velocity_features(norm_data, valid_len)
-        if cfg.ENABLE_ACCEL_FEATURE:
+        if cfg.SEQUENCE.enable_accel_feature:
             feature_data = self._add_acceleration_features(feature_data, valid_len)
 
         final_data, final_mask = self._pad_sequence(feature_data, masks)
@@ -461,7 +461,7 @@ class PreprocessHelper:
         """对短缺失段进行线性插值，并更新掩码。"""
         filled = data.copy()
         updated_mask = mask.copy()
-        max_gap = max(1, int(cfg.INTERP_MAX_GAP))
+        max_gap = max(1, int(cfg.PREPROCESS.interp_max_gap))
         T, V, _ = data.shape
 
         for v in range(V):
@@ -500,11 +500,11 @@ class PreprocessHelper:
 
     def _smooth_xy(self, data: np.ndarray, mask: np.ndarray) -> np.ndarray:
         """仅对有效关键点做 EMA 平滑。"""
-        if cfg.SMOOTH_METHOD.lower() != "ema":
+        if cfg.PREPROCESS.smooth_method.lower() != "ema":
             return data
 
         smoothed = data.copy()
-        alpha = float(cfg.SMOOTH_EMA_ALPHA)
+        alpha = float(cfg.PREPROCESS.smooth_ema_alpha)
         T, V, _ = data.shape
 
         for v in range(V):
@@ -523,7 +523,7 @@ class PreprocessHelper:
     def _align_shoulder_axis(self, data: np.ndarray, mask: np.ndarray) -> np.ndarray:
         """将每帧肩轴旋转到水平，减小拍摄角度偏差。"""
         aligned = data.copy()
-        eps = float(cfg.NORMALIZE_EPS)
+        eps = float(cfg.PREPROCESS.normalize_eps)
 
         for t in range(aligned.shape[0]):
             if (
@@ -568,23 +568,23 @@ class PreprocessHelper:
                 right = data[t, self.RIGHT_SHOULDER_IDX, :2]
                 roots[t] = (left + right) / 2.0
                 shoulder_dist = np.linalg.norm(left - right)
-                if shoulder_dist > cfg.NORMALIZE_EPS:
+                if shoulder_dist > cfg.PREPROCESS.normalize_eps:
                     shoulder_scales.append(float(shoulder_dist))
             elif t > 0:
                 roots[t] = roots[t - 1]
 
             if mask[t, self.MID_HIP_IDX] == 1:
                 torso_dist = np.linalg.norm(roots[t] - data[t, self.MID_HIP_IDX, :2])
-                if torso_dist > cfg.NORMALIZE_EPS:
+                if torso_dist > cfg.PREPROCESS.normalize_eps:
                     torso_scales.append(float(torso_dist))
 
         shoulder_scale = np.median(shoulder_scales) if shoulder_scales else 1.0
-        if cfg.SCALE_MODE == "shoulder_torso_fusion" and torso_scales:
+        if cfg.PREPROCESS.scale_mode == "shoulder_torso_fusion" and torso_scales:
             video_scale = 0.7 * shoulder_scale + 0.3 * np.median(torso_scales)
         else:
             video_scale = shoulder_scale
 
-        if video_scale <= cfg.NORMALIZE_EPS or np.isnan(video_scale):
+        if video_scale <= cfg.PREPROCESS.normalize_eps or np.isnan(video_scale):
             video_scale = 1.0
 
         normalized = (data - roots[:, np.newaxis, :]) / float(video_scale)
@@ -741,7 +741,7 @@ def _build_gloss_map() -> dict:
     gloss_map = {}
 
     # 优先使用 config 中配置的路径
-    wlasl_json = getattr(cfg, "WLASL_GLOSS_JSON", None)
+    wlasl_json = cfg.PATHS.wlasl_gloss_json
     if wlasl_json is None or not os.path.exists(wlasl_json):
         # 回退到默认路径
         wlasl_json = os.path.join(os.path.dirname(DEFAULT_JSON_PATH), "WLASL_v0.3.json")
@@ -856,7 +856,7 @@ def _worker_init():
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
     warnings.filterwarnings("ignore")
     _worker_extractor = KeypointExtractor()
-    _worker_preprocess_helper = PreprocessHelper(max_frames=cfg.MAX_FRAMES)
+    _worker_preprocess_helper = PreprocessHelper(max_frames=cfg.SEQUENCE.max_frames)
 
 
 def _worker_process_video(task: tuple) -> dict:
@@ -884,7 +884,7 @@ def _worker_process_video(task: tuple) -> dict:
         if keypoints is None or keypoints.shape[0] == 0:
             return {"success": False, "video_id": video_id}
 
-        if quality < cfg.MIN_VALID_RATIO_PER_SAMPLE:
+        if quality < cfg.PREPROCESS.min_valid_ratio_per_sample:
             return {
                 "success": False,
                 "video_id": video_id,
@@ -960,8 +960,8 @@ def create_hdf5_file(
             grp.create_dataset("width", data=data["width"], dtype="int64")
             grp.create_dataset("height", data=data["height"], dtype="int64")
 
-            grp.attrs["pipeline_version"] = cfg.PREPROCESS_PIPELINE_VERSION
-            grp.attrs["feature_channels"] = ",".join(cfg.BASE_FEATURE_CHANNELS)
+            grp.attrs["pipeline_version"] = cfg.PREPROCESS.pipeline_version
+            grp.attrs["feature_channels"] = ",".join(cfg.SEQUENCE.base_feature_channels)
 
 
 def create_maplabels_json(
@@ -1006,7 +1006,7 @@ def create_maplabels_json(
 
     # 从 WLASL_v0.3.json 读取 gloss 顺序
     # gloss 在列表中的索引就是它的 label_id
-    wlasl_json_path = os.path.join(cfg.RAW_DATA_DIR, "WLASL_v0.3.json")
+    wlasl_json_path = os.path.join(cfg.PATHS.raw_data_dir, "WLASL_v0.3.json")
 
     if os.path.exists(wlasl_json_path):
         try:
@@ -1101,17 +1101,17 @@ def compute_train_feature_stats(train_data: dict) -> Optional[dict]:
     std_c = np.sqrt(var_c)
 
     return {
-        "channels": cfg.BASE_FEATURE_CHANNELS,
+        "channels": cfg.SEQUENCE.base_feature_channels,
         "mean": mean_c.tolist(),
         "std": std_c.tolist(),
         "count": cnt_c.tolist(),
-        "version": cfg.PREPROCESS_PIPELINE_VERSION,
+        "version": cfg.PREPROCESS.pipeline_version,
     }
 
 
 def save_train_feature_stats(stats: dict) -> None:
     """保存训练集统计量到配置路径。"""
-    stats_path = cfg.FEATURE_STATS_PATH
+    stats_path = cfg.PREPROCESS.feature_stats_path
     os.makedirs(os.path.dirname(stats_path), exist_ok=True)
     with open(stats_path, "w", encoding="utf-8") as f:
         json.dump(stats, f, indent=2, ensure_ascii=False)
@@ -1164,7 +1164,7 @@ def parse_args():
         if subset in SUBSET_JSON_MAP:
             args.json = SUBSET_JSON_MAP[subset]
             args.prefix = f"WLASL{subset}"
-            args.video_dir = os.path.join(cfg.RAW_DATA_DIR, f"WLASL{subset}")
+            args.video_dir = os.path.join(cfg.PATHS.raw_data_dir, f"WLASL{subset}")
             # 输出目录应该包含数据规模子目录
             args.output_dir = os.path.join(args.output_dir, f"WLASL{subset}")
         else:
@@ -1228,7 +1228,7 @@ def main():
     )
 
     # 3. 获取工作进程数
-    num_workers = getattr(cfg, "NUM_WORKERS", None)
+    num_workers = cfg.PREPROCESS.num_workers
     if num_workers is None:
         num_workers = max(1, mp_process.cpu_count() - 1)  # 保留一个核心给系统
     num_workers = max(1, num_workers)
@@ -1318,7 +1318,7 @@ def main():
         print("  使用单进程处理")
         print("\n[3.5/5] 初始化 MediaPipe 模型和预处理器...")
         extractor = KeypointExtractor()
-        preprocess_helper = PreprocessHelper(max_frames=cfg.MAX_FRAMES)
+        preprocess_helper = PreprocessHelper(max_frames=cfg.SEQUENCE.max_frames)
 
         for video_id, info, video_path in tqdm(
             videos_to_process, desc="Processing videos"
@@ -1336,7 +1336,7 @@ def main():
                     failed_count += 1
                     continue
 
-                if quality < cfg.MIN_VALID_RATIO_PER_SAMPLE:
+                if quality < cfg.PREPROCESS.min_valid_ratio_per_sample:
                     filtered_count += 1
                     continue
 
