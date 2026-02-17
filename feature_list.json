@@ -1,0 +1,44 @@
+{
+  "project": "ASL-LSTM",
+  "features": [
+    {
+      "id": "F001",
+      "category": "基线验证",
+      "description": "验证架构重构与数据一致性修复成果 (Baseline Verification)",
+      "steps": [
+        "运行配置结构测试 (test_config_structure.py)",
+        "运行数据管道一致性测试 (verify_consistency.py)",
+        "验证 E01 Mask-aware 预处理逻辑生效",
+        "确认验证集准确率基线 (应约 70.6%)"
+      ],
+      "priority": "P0",
+      "passes": false
+    },
+    {
+      "id": "F002",
+      "category": "模型优化",
+      "description": "训练策略优化：正则化与采样策略 (Phase A)",
+      "steps": [
+        "实现正则化网格搜索 (Dropout: 0.35-0.5, WD: 2e-3)",
+        "实现 Label Smoothing 调整 (0.05 -> 0.1)",
+        "对比采样策略 (WeightedRandomSampler vs Focal Loss)",
+        "目标：Train-Val Gap < 20%"
+      ],
+      "priority": "P1",
+      "passes": false
+    },
+    {
+      "id": "F003",
+      "category": "模型架构",
+      "description": "轻量级模型结构升级 (Phase B)",
+      "steps": [
+        "引入 LayerNorm 层标准化",
+        "添加轻量级 MLP Head",
+        "消融实验：Hidden Size 调整 (128 vs 256)",
+        "目标：测试集准确率 > 62%"
+      ],
+      "priority": "P2",
+      "passes": false
+    }
+  ]
+}

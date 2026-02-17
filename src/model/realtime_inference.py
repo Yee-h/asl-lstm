@@ -25,8 +25,8 @@ sys.path.append(
 
 import src.config as cfg
 from src.model.model_lstm import get_model
-from src.model.dataloader import preprocess_keypoints
-from src.data_process.preprocess_wlasl import KeypointExtractor
+from src.model.dataloader import preprocess_keypoints, load_feature_stats
+from src.data_process.preprocess_wlasl import KeypointExtractor, PreprocessHelper
 
 
 def load_label_map_inverse() -> dict:
@@ -66,83 +66,276 @@ def load_chinese_font(size: int):
     return ImageFont.load_default()
 
 
-def draw_overlay_with_buttons(
+def draw_modern_ui(
     frame: np.ndarray,
-    status_text: str,
+    last_result: Tuple[str, float] | None,
     fps: float,
     font_main,
     font_small,
     show_skeleton: bool,
+    mouse_pos: Tuple[int, int] | None,
+    status_text: str | None = None,
 ) -> Tuple[np.ndarray, Tuple[int, int, int, int], Tuple[int, int, int, int]]:
     """
-    使用 PIL 绘制中文叠加文本、退出按钮和骨骼显示切换按钮。
-    返回绘制后的 BGR 图像、退出按钮矩形、骨骼切换按钮矩形。
+    绘制现代化、极简主义风格的 UI 界面。
     """
-    w = frame.shape[1]
-    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    draw = ImageDraw.Draw(image)
+    h, w = frame.shape[:2]
 
-    # 状态与 FPS 文本
-    text_y1 = 18
-    text_x = 20
-    draw.text((text_x, text_y1), status_text, font=font_main, fill=(0, 255, 0))
+    # 转换为 PIL RGBA 进行透明度绘制
+    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).convert("RGBA")
+    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
 
-    text_y2 = text_y1 + font_main.size + 8
-    draw.text((text_x, text_y2), f"FPS：{fps:.1f}", font=font_small, fill=(255, 255, 0))
+    # ==========================
+    # 1. 顶部信息栏 (FPS)
+    # ==========================
+    fps_text = f"FPS: {fps:.1f}"
+    fps_bbox = draw.textbbox((0, 0), fps_text, font=font_small)
+    fps_w = fps_bbox[2] - fps_bbox[0] + 24
+    fps_h = fps_bbox[3] - fps_bbox[1] + 12
+    fps_x = 20
+    fps_y = 20
 
+    # 绘制 FPS 背景胶囊 (半透明黑 + 亮色文字)
+    draw.rounded_rectangle(
+        [fps_x, fps_y, fps_x + fps_w, fps_y + fps_h],
+        radius=12,
+        fill=(30, 30, 30, 160),
+        outline=(255, 255, 255, 30),
+        width=1,
+    )
+    draw.text(
+        (fps_x + 12, fps_y + 6), fps_text, font=font_small, fill=(220, 220, 220, 255)
+    )
+
+    # ==========================
+    # 2. 交互按钮区域 (右上角)
+    # ==========================
     margin_r, margin_t = cfg.UI.exit_button_margin
+    btn_height = 44  # 稍微加大高度
+    btn_radius = 12  # 圆角半径
 
-    # 退出按钮（右上角最右侧）
-    exit_w, exit_h = cfg.UI.exit_button_size
-    exit_x1 = w - exit_w - margin_r
+    # --- 退出按钮 (Exit) ---
+    exit_text = cfg.UI.exit_button_text
+    exit_bbox = draw.textbbox((0, 0), exit_text, font=font_small)
+    exit_text_w = exit_bbox[2] - exit_bbox[0]
+    exit_w = max(90, exit_text_w + 40)
+
+    exit_x1 = w - margin_r - exit_w
     exit_y1 = margin_t
     exit_x2 = exit_x1 + exit_w
-    exit_y2 = exit_y1 + exit_h
+    exit_y2 = exit_y1 + btn_height
 
-    draw.rectangle(
+    # 检测 Hover
+    is_hover_exit = False
+    if mouse_pos:
+        mx, my = mouse_pos
+        if exit_x1 <= mx <= exit_x2 and exit_y1 <= my <= exit_y2:
+            is_hover_exit = True
+
+    # 红色系渐变效果 (模拟)
+    if is_hover_exit:
+        exit_fill = (255, 60, 60, 230)
+        exit_outline = (255, 200, 200, 180)
+    else:
+        exit_fill = (40, 40, 40, 160)
+        exit_outline = (255, 255, 255, 40)
+
+    draw.rounded_rectangle(
         [exit_x1, exit_y1, exit_x2, exit_y2],
-        fill=(245, 245, 245),
-        outline=(0, 0, 0),
-        width=2,
-    )
-    bbox = draw.textbbox((0, 0), cfg.UI.exit_button_text, font=font_small)
-    text_w = bbox[2] - bbox[0]
-    text_h = bbox[3] - bbox[1]
-    text_x_btn = exit_x1 + (exit_w - text_w) // 2
-    text_y_btn = exit_y1 + (exit_h - text_h) // 2
-    draw.text(
-        (text_x_btn, text_y_btn),
-        cfg.UI.exit_button_text,
-        font=font_small,
-        fill=(0, 0, 0),
+        radius=btn_radius,
+        fill=exit_fill,
+        outline=exit_outline,
+        width=1,
     )
 
-    # 骨骼切换按钮（退出按钮左侧）
-    skel_w, skel_h = cfg.UI.skeleton_button_size
-    skel_x2 = exit_x1 - cfg.UI.skeleton_button_gap
+    # 居中文字
+    draw.text(
+        (
+            exit_x1 + (exit_w - exit_text_w) // 2,
+            exit_y1 + (btn_height - (exit_bbox[3] - exit_bbox[1])) // 2 - 2,
+        ),
+        exit_text,
+        font=font_small,
+        fill=(255, 255, 255, 255),
+    )
+
+    # --- 骨骼切换按钮 (Skeleton) ---
+    skel_text = "骨骼: 开" if show_skeleton else "骨骼: 关"
+    skel_bbox = draw.textbbox((0, 0), skel_text, font=font_small)
+    skel_text_w = skel_bbox[2] - skel_bbox[0]
+    skel_w = max(110, skel_text_w + 40)
+
+    skel_x2 = exit_x1 - 15  # 间距
     skel_x1 = skel_x2 - skel_w
     skel_y1 = margin_t
-    skel_y2 = skel_y1 + skel_h
+    skel_y2 = skel_y1 + btn_height
 
-    skel_btn_text = (
-        cfg.UI.skeleton_button_text_on
-        if show_skeleton
-        else cfg.UI.skeleton_button_text_off
+    # 检测 Hover
+    is_hover_skel = False
+    if mouse_pos:
+        mx, my = mouse_pos
+        if skel_x1 <= mx <= skel_x2 and skel_y1 <= my <= skel_y2:
+            is_hover_skel = True
+
+    # 绿色系 (开) / 灰色系 (关)
+    if show_skeleton:
+        if is_hover_skel:
+            skel_fill = (0, 200, 120, 230)
+            skel_outline = (200, 255, 200, 180)
+        else:
+            skel_fill = (0, 160, 90, 200)
+            skel_outline = (255, 255, 255, 50)
+    else:
+        if is_hover_skel:
+            skel_fill = (70, 70, 70, 230)
+            skel_outline = (255, 255, 255, 100)
+        else:
+            skel_fill = (40, 40, 40, 160)
+            skel_outline = (255, 255, 255, 40)
+
+    draw.rounded_rectangle(
+        [skel_x1, skel_y1, skel_x2, skel_y2],
+        radius=btn_radius,
+        fill=skel_fill,
+        outline=skel_outline,
+        width=1,
     )
-    btn_fill = (200, 255, 200) if show_skeleton else (245, 245, 245)
-    draw.rectangle(
-        [skel_x1, skel_y1, skel_x2, skel_y2], fill=btn_fill, outline=(0, 0, 0), width=2
-    )
-    bbox_skel = draw.textbbox((0, 0), skel_btn_text, font=font_small)
-    skel_text_w = bbox_skel[2] - bbox_skel[0]
-    skel_text_h = bbox_skel[3] - bbox_skel[1]
-    skel_text_x = skel_x1 + (skel_w - skel_text_w) // 2
-    skel_text_y = skel_y1 + (skel_h - skel_text_h) // 2
+
     draw.text(
-        (skel_text_x, skel_text_y), skel_btn_text, font=font_small, fill=(0, 0, 0)
+        (
+            skel_x1 + (skel_w - skel_text_w) // 2,
+            skel_y1 + (btn_height - (skel_bbox[3] - skel_bbox[1])) // 2 - 2,
+        ),
+        skel_text,
+        font=font_small,
+        fill=(255, 255, 255, 255),
     )
 
-    rendered = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    # ==========================
+    # 3. 底部预测结果展示区 (卡片式)
+    # ==========================
+    card_h = 100
+    bottom_margin = 40
+
+    if last_result:
+        label, prob = last_result
+        prob_percent = int(prob * 100)
+
+        # 标签文字
+        label_bbox = draw.textbbox((0, 0), label, font=font_main)
+        label_w = label_bbox[2] - label_bbox[0]
+
+        # 概率文字
+        prob_text = f"{prob_percent}%"
+        prob_bbox = draw.textbbox((0, 0), prob_text, font=font_main)
+        prob_w = prob_bbox[2] - prob_bbox[0]
+
+        # 布局计算
+        content_gap = 20
+        min_card_w = 360
+        total_content_w = max(min_card_w, label_w + content_gap + prob_w + 60)
+
+        card_w = total_content_w
+        card_x1 = (w - card_w) // 2
+        card_y1 = h - card_h - bottom_margin
+        card_x2 = card_x1 + card_w
+        card_y2 = card_y1 + card_h
+
+        # 磨砂玻璃背景
+        draw.rounded_rectangle(
+            [card_x1, card_y1, card_x2, card_y2],
+            radius=20,
+            fill=(20, 20, 20, 220),
+            outline=(255, 255, 255, 25),
+            width=1,
+        )
+
+        # 顶部：标签 和 概率数值
+        # 左侧放 Label, 右侧放 概率
+        text_y_base = card_y1 + 25
+
+        draw.text(
+            (card_x1 + 30, text_y_base),
+            label,
+            font=font_main,
+            fill=(255, 255, 255, 255),
+        )
+
+        # 概率颜色
+        if prob > 0.8:
+            prob_color = (100, 255, 100, 255)
+        elif prob > 0.5:
+            prob_color = (255, 200, 50, 255)
+        else:
+            prob_color = (255, 80, 80, 255)
+
+        draw.text(
+            (card_x2 - 30 - prob_w, text_y_base),
+            prob_text,
+            font=font_main,
+            fill=prob_color,
+        )
+
+        # 底部：进度条
+        bar_x1 = card_x1 + 30
+        bar_x2 = card_x2 - 30
+        bar_y1 = card_y2 - 30
+        bar_y2 = bar_y1 + 8
+        bar_full_w = bar_x2 - bar_x1
+
+        # 进度条背景
+        draw.rounded_rectangle(
+            [bar_x1, bar_y1, bar_x2, bar_y2],
+            radius=4,
+            fill=(60, 60, 60, 255),
+        )
+
+        # 进度条前景
+        fill_w = int(bar_full_w * prob)
+        if fill_w > 0:
+            draw.rounded_rectangle(
+                [bar_x1, bar_y1, bar_x1 + fill_w, bar_y2],
+                radius=4,
+                fill=prob_color,
+            )
+
+    else:
+        # 待机状态
+        hint_text = status_text if status_text else "等待手语动作..."
+        hint_bbox = draw.textbbox((0, 0), hint_text, font=font_main)
+        hint_w = hint_bbox[2] - hint_bbox[0]
+
+        card_w = max(320, hint_w + 80)
+        card_h = 80
+        card_x1 = (w - card_w) // 2
+        card_y1 = h - card_h - bottom_margin
+        card_x2 = card_x1 + card_w
+        card_y2 = card_y1 + card_h
+
+        draw.rounded_rectangle(
+            [card_x1, card_y1, card_x2, card_y2],
+            radius=20,
+            fill=(30, 30, 30, 200),
+            outline=(255, 255, 255, 20),
+            width=1,
+        )
+
+        # 居中显示提示
+        draw.text(
+            (
+                card_x1 + (card_w - hint_w) // 2,
+                card_y1 + (card_h - (hint_bbox[3] - hint_bbox[1])) // 2 - 4,
+            ),
+            hint_text,
+            font=font_main,
+            fill=(180, 180, 180, 255),
+        )
+
+    # 混合图层
+    out = Image.alpha_composite(image, overlay)
+    rendered = cv2.cvtColor(np.array(out), cv2.COLOR_RGBA2BGR)
+
     return (
         rendered,
         (exit_x1, exit_y1, exit_x2, exit_y2),
@@ -257,7 +450,14 @@ def draw_skeleton(frame: np.ndarray, keypoints: np.ndarray) -> np.ndarray:
 
 def on_mouse(event: int, x: int, y: int, flags: int, params: Any):
     """鼠标回调：检测是否点击退出按钮或骨骼切换按钮。"""
-    if params is None or event != cv2.EVENT_LBUTTONDOWN:
+    if params is None:
+        return
+
+    # 记录鼠标位置用于 Hover 效果
+    if event == cv2.EVENT_MOUSEMOVE:
+        params["mouse_pos"] = (x, y)
+
+    if event != cv2.EVENT_LBUTTONDOWN:
         return
 
     # 检测退出按钮
@@ -278,26 +478,49 @@ def on_mouse(event: int, x: int, y: int, flags: int, params: Any):
 
 def prepare_sequence(
     frame_buffer: Deque[np.ndarray],
+    helper: PreprocessHelper,
+    stats: Dict[str, Any] | None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     将关键点序列转换为模型可接受的张量。
-    复用 dataloader.py 中的 preprocess_keypoints 函数。
+    复用 dataloader.py 和 preprocess_wlasl.py 中的方法。
 
     Args:
         frame_buffer: 存放 (2, 135) 关键点的队列，长度不超过 cfg.SEQUENCE.max_frames。
+        helper: 预处理助手，负责几何归一化。
+        stats: 统计特征，负责 Z-Score 标准化。
 
     Returns:
-        inputs: 形状为 (1, cfg.SEQUENCE.max_frames, cfg.SEQUENCE.input_size) 的张量。
+        inputs: 形状为 (1, max_frames, input_size) 的张量。
         lengths: 形状为 (1,) 的张量，表示有效帧长度。
     """
     if not frame_buffer:
         raise ValueError("frame_buffer 为空，无法进行推理")
 
     # 将队列堆叠为 numpy 数组: (seq_len, 2, 135)
-    data = np.stack(frame_buffer)
+    raw_data = np.stack(frame_buffer)
+    T, C, V = raw_data.shape
 
-    # 复用 dataloader 中的预处理函数
-    data_tensor, valid_len = preprocess_keypoints(data, cfg.SEQUENCE.max_frames)
+    # 创建掩码 (T, V)
+    raw_mask = ((raw_data[:, 0, :] != 0) | (raw_data[:, 1, :] != 0)).astype(np.uint8)
+
+    # 1. 应用几何归一化 (PreprocessHelper)
+    # 返回: (T, C, V), valid_len, mask, quality
+    # 这包括插值、平滑、肩轴对齐、尺度归一化、速度/加速度特征提取、填充/截断
+    processed_data, valid_len, processed_mask, _ = helper.process_video_sequence(
+        raw_data, raw_mask
+    )
+
+    # 2. 应用标准化和张量转换 (preprocess_keypoints)
+    # 这包括 Z-Score 标准化 (如果 stats 存在) 和转 Tensor
+    data_tensor, valid_len = preprocess_keypoints(
+        processed_data,
+        max_frames=cfg.SEQUENCE.max_frames,
+        valid_len=valid_len,
+        stats=stats,
+        standardize=cfg.PREPROCESS.enable_standardize and stats is not None,
+        mask=processed_mask,
+    )
 
     # 添加 batch 维度
     inputs = data_tensor.unsqueeze(0)  # (1, max_frames, input_size)
@@ -305,12 +528,12 @@ def prepare_sequence(
     return inputs, lengths
 
 
-def run_realtime_inference(camera_index: int | None = None) -> None:
+def run_realtime_inference(camera_index: int | str | None = None) -> None:
     """
-    使用摄像头与预训练模型进行实时手语分类。
+    使用摄像头或视频文件与预训练模型进行实时手语分类。
 
     Args:
-        camera_index: 摄像头索引，默认使用 cfg.INFERENCE.camera_index。
+        camera_index: 摄像头索引(int)或视频文件路径(str)，默认使用 cfg.INFERENCE.camera_index。
 
     按下键盘 "q" 或点击右上角按钮退出。
     """
@@ -337,8 +560,20 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
     model_name = "BiLSTM+Attention" if cfg.MODEL.use_attention else "BiLSTM"
     print(f"已加载模型: {model_name} -> {os.path.basename(model_path)}")
 
-    # 初始化关键点提取器
-    extractor = KeypointExtractor()
+    # 初始化关键点提取器 (启用 VIDEO 模式以提升性能)
+    extractor = KeypointExtractor(use_video_mode=True)
+
+    # 初始化预处理助手 (负责几何归一化)
+    preprocess_helper = PreprocessHelper(max_frames=cfg.SEQUENCE.max_frames)
+
+    # 加载训练集统计量 (负责 Z-Score 标准化)
+    stats = None
+    if cfg.PREPROCESS.enable_standardize:
+        if os.path.exists(cfg.PREPROCESS.feature_stats_path):
+            stats = load_feature_stats(cfg.PREPROCESS.feature_stats_path)
+            print(f"已加载标准化统计量: {cfg.PREPROCESS.feature_stats_path}")
+        else:
+            print("警告: 启用了标准化但未找到统计量文件，推理时将跳过标准化。")
 
     # 加载中文字体
     font_main = load_chinese_font(cfg.UI.font_size)
@@ -351,22 +586,27 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
         "skel_rect": None,
         "quit": False,
         "show_skeleton": False,
+        "mouse_pos": None,
     }
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     cv2.setMouseCallback(window_name, on_mouse, mouse_state)
 
-    # 摄像头输入
-    cam_idx = cfg.INFERENCE.camera_index if camera_index is None else camera_index
-    cap = cv2.VideoCapture(cam_idx)
+    # 摄像头输入 (支持视频文件)
+    cam_source = cfg.INFERENCE.camera_index if camera_index is None else camera_index
+    cap = cv2.VideoCapture(cam_source)
 
-    # 设置摄像头参数以提高帧率
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, cfg.INFERENCE.camera_width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg.INFERENCE.camera_height)
-    cap.set(cv2.CAP_PROP_FPS, cfg.INFERENCE.camera_fps)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # 减小缓冲区降低延迟
+    # 仅当输入源为整数（摄像头索引）时设置摄像头参数
+    if isinstance(cam_source, int):
+        # 设置摄像头参数以提高帧率
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, cfg.INFERENCE.camera_width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg.INFERENCE.camera_height)
+        cap.set(cv2.CAP_PROP_FPS, cfg.INFERENCE.camera_fps)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # 减小缓冲区降低延迟
+    else:
+        print(f"输入源为视频文件: {cam_source}，跳过摄像头参数设置。")
 
     if not cap.isOpened():
-        print(f"错误: 无法打开摄像头索引 {cam_idx}")
+        print(f"错误: 无法打开输入源 {cam_source}")
         extractor.close()
         return
 
@@ -381,6 +621,7 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
     print('\n实时推理已启动，按 "q" 退出。\n')
     start_time = time.time()
     frame_count = 0
+    status_text = "初始化..."
 
     try:
         with torch.no_grad():
@@ -391,53 +632,72 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
                     break
 
                 # 水平翻转画面，使显示更自然（镜像效果）
-                frame = cv2.flip(frame, 1)
+                # 仅对摄像头输入进行翻转，视频文件保持原样
+                if isinstance(cam_source, int):
+                    frame = cv2.flip(frame, 1)
 
                 frame_count += 1
+                timestamp_ms = int(time.time() * 1000)
 
-                # 每帧都提取关键点用于显示，但推理可以间隔进行
-                keypoints, valid_mask = extractor.extract_frame(frame)
+                # 使用优化后的提取方法：优先检测手部
+                keypoints, valid_mask, has_hands = extractor.extract_frame_optimized(
+                    frame, timestamp_ms
+                )
 
-                # 检查关键点是否有效（至少有一定数量的非零点才认为检测成功）
-                keypoints_valid = False
-                if keypoints is not None and valid_mask is not None:
-                    valid_count = int(np.sum(valid_mask))
+                if not has_hands:
+                    # 未检测到手部，清空缓冲区（或保持不变？建议清空以避免拼接错误动作）
+                    # frame_buffer.clear() # 可选：是否清空取决于交互设计，这里选择不清空但暂停推理
+                    last_result = None
+                    # 更新状态文本
+                    status_text = "未检测到手部骨骼点信息"
+                    keypoints = None  # 不显示旧骨骼
+                else:
+                    # 检查关键点是否有效（至少有一定数量的非零点才认为检测成功）
+                    # extract_frame_optimized 已经保证了 hand_landmarks 存在，这里再做一次数量检查
+                    valid_count = (
+                        int(np.sum(valid_mask)) if valid_mask is not None else 0
+                    )
                     keypoints_valid = (
                         valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame
                     )
 
-                # 只有检测到有效骨骼点时才更新 buffer
-                if keypoints_valid and keypoints is not None:
-                    frame_buffer.append(keypoints)
+                    # 只有检测到有效骨骼点时才更新 buffer
+                    if keypoints_valid and keypoints is not None:
+                        frame_buffer.append(keypoints)
 
-                    # 按间隔进行模型推理以提高帧率
-                    if frame_buffer and (
-                        frame_count % cfg.INFERENCE.inference_interval == 0
-                    ):
-                        inputs, lengths = prepare_sequence(frame_buffer)
-                        inputs = inputs.to(device)
-                        lengths = lengths.to(device)
+                        # 按间隔进行模型推理以提高帧率
+                        if frame_buffer and (
+                            frame_count % cfg.INFERENCE.inference_interval == 0
+                        ):
+                            try:
+                                inputs, lengths = prepare_sequence(
+                                    frame_buffer, preprocess_helper, stats
+                                )
+                                inputs = inputs.to(device)
+                                lengths = lengths.to(device)
 
-                        logits = model(inputs, lengths)
-                        probs = F.softmax(logits, dim=1).squeeze(0)
+                                logits = model(inputs, lengths)
+                                probs = F.softmax(logits, dim=1).squeeze(0)
 
-                        top_prob, top_idx = torch.max(probs, dim=0)
-                        pred_label = id_to_label.get(
-                            int(top_idx.item()), str(int(top_idx.item()))
-                        )
-                        last_result = (pred_label, float(top_prob.item()))
-                else:
-                    # 未检测到有效骨骼点时清空缓冲区和预测结果
-                    frame_buffer.clear()
-                    last_result = None
-                    keypoints = None  # 确保骨骼显示也不渲染
+                                top_prob, top_idx = torch.max(probs, dim=0)
+                                pred_label = id_to_label.get(
+                                    int(top_idx.item()), str(int(top_idx.item()))
+                                )
+                                last_result = (pred_label, float(top_prob.item()))
+                            except Exception as e:
+                                # 仅在调试时打印详细错误，避免刷屏
+                                # print(f"推理错误: {e}")
+                                last_result = None
+                    else:
+                        # 有手但关键点数量不足（极少情况）
+                        status_text = "关键点数量不足"
 
                 # 叠加显示信息（中文）
-                status_text = (
-                    "未检测到人体..."
-                    if last_result is None
-                    else f"预测：{last_result[0]} ({last_result[1] * 100:.1f}%)"
-                )
+                # status_text 在上面已经处理了 "无手" 的情况，这里处理有结果的情况
+                if has_hands and last_result:
+                    pass  # UI draw_modern_ui 会处理 last_result
+                elif has_hands and not last_result:
+                    status_text = "正在分析..."  # 或者保持上一帧状态
 
                 # FPS 估计
                 elapsed = time.time() - start_time
@@ -448,16 +708,25 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
                 if mouse_state.get("show_skeleton") and keypoints is not None:
                     display_frame = draw_skeleton(display_frame, keypoints)
 
-                overlay, exit_rect, skel_rect = draw_overlay_with_buttons(
+                overlay, exit_rect, skel_rect = draw_modern_ui(
                     display_frame,
-                    status_text,
+                    last_result,
                     fps,
                     font_main,
                     font_small,
                     mouse_state.get("show_skeleton", False),
+                    mouse_state.get("mouse_pos"),
+                    status_text=status_text,
                 )
                 mouse_state["exit_rect"] = exit_rect
                 mouse_state["skel_rect"] = skel_rect
+
+                # 检查窗口是否被用户关闭 (X 按钮)
+                # 必须在 imshow 之前检查，否则 imshow 会自动重建窗口导致无法检测关闭事件
+                # 同时也解决了重建窗口后鼠标回调失效导致按钮不可用的问题
+                if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+                    print("窗口被用户关闭。")
+                    break
 
                 cv2.imshow(window_name, overlay)
 
@@ -471,5 +740,40 @@ def run_realtime_inference(camera_index: int | None = None) -> None:
         print("已退出实时推理。")
 
 
+import argparse
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="实时手语推理")
+    parser.add_argument(
+        "--camera",
+        "-c",
+        type=int,
+        default=None,
+        help="摄像头索引 (默认使用 config.py 中的配置)",
+    )
+    parser.add_argument(
+        "--video",
+        "-v",
+        type=str,
+        default=None,
+        help="视频文件路径 (如果不使用摄像头)",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    run_realtime_inference()
+    args = parse_args()
+
+    # 如果指定了视频文件，临时修改 config 中的 camera_index 为视频路径
+    # 注意：cv2.VideoCapture 支持整数索引或文件路径字符串
+    source = args.camera if args.camera is not None else cfg.INFERENCE.camera_index
+    if args.video:
+        if os.path.exists(args.video):
+            source = args.video
+            print(f"将使用视频文件进行推理: {source}")
+        else:
+            print(f"错误: 视频文件不存在: {args.video}")
+            sys.exit(1)
+
+    run_realtime_inference(camera_index=source)

@@ -118,8 +118,19 @@ def download_model(url: str, path: str) -> None:
 class KeypointExtractor:
     """使用 MediaPipe Tasks API 提取人体骨骼关键点"""
 
-    def __init__(self):
-        """初始化 MediaPipe 模型"""
+    def __init__(self, use_video_mode: bool = False):
+        """
+        初始化 MediaPipe 模型
+
+        Args:
+            use_video_mode: 是否使用 VIDEO 模式（适用于连续视频帧处理，速度更快）
+                            默认为 False (IMAGE 模式)，以保持与现有预处理脚本的兼容性
+        """
+        self.use_video_mode = use_video_mode
+        self.running_mode = (
+            vision.RunningMode.VIDEO if use_video_mode else vision.RunningMode.IMAGE
+        )
+
         # 下载模型
         print("  检查和下载模型文件...")
         download_model(POSE_MODEL_URL, POSE_MODEL_PATH)
@@ -129,7 +140,7 @@ class KeypointExtractor:
         # 初始化 Pose Landmarker
         pose_options = vision.PoseLandmarkerOptions(
             base_options=python.BaseOptions(model_asset_path=POSE_MODEL_PATH),
-            running_mode=vision.RunningMode.IMAGE,
+            running_mode=self.running_mode,
             num_poses=1,
             min_pose_detection_confidence=cfg.MEDIAPIPE.pose_min_det_conf,
             min_pose_presence_confidence=cfg.MEDIAPIPE.pose_min_presence_conf,
@@ -140,7 +151,7 @@ class KeypointExtractor:
         # 初始化 Hand Landmarker
         hand_options = vision.HandLandmarkerOptions(
             base_options=python.BaseOptions(model_asset_path=HAND_MODEL_PATH),
-            running_mode=vision.RunningMode.IMAGE,
+            running_mode=self.running_mode,
             num_hands=2,
             min_hand_detection_confidence=cfg.MEDIAPIPE.hand_min_det_conf,
             min_hand_presence_confidence=cfg.MEDIAPIPE.hand_min_presence_conf,
@@ -151,7 +162,7 @@ class KeypointExtractor:
         # 初始化 Face Landmarker
         face_options = vision.FaceLandmarkerOptions(
             base_options=python.BaseOptions(model_asset_path=FACE_MODEL_PATH),
-            running_mode=vision.RunningMode.IMAGE,
+            running_mode=self.running_mode,
             num_faces=1,
             min_face_detection_confidence=cfg.MEDIAPIPE.face_min_det_conf,
             min_face_presence_confidence=cfg.MEDIAPIPE.face_min_presence_conf,
@@ -159,7 +170,8 @@ class KeypointExtractor:
         )
         self.face_detector = vision.FaceLandmarker.create_from_options(face_options)
 
-        print("  模型加载完成!")
+        mode_str = "VIDEO" if use_video_mode else "IMAGE"
+        print(f"  模型加载完成! (模式: {mode_str})")
 
     def close(self):
         """释放资源"""
@@ -168,13 +180,14 @@ class KeypointExtractor:
         self.face_detector.close()
 
     def extract_frame(
-        self, frame: np.ndarray
+        self, frame: np.ndarray, timestamp_ms: Optional[int] = None
     ) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
         从单帧图像中提取关键点
 
         Args:
             frame: BGR 格式的图像 (H, W, 3)
+            timestamp_ms: 时间戳（毫秒），VIDEO 模式下必须提供
 
         Returns:
             (keypoints, valid_mask)
@@ -189,9 +202,22 @@ class KeypointExtractor:
 
         # 运行检测
         try:
-            pose_result = self.pose_detector.detect(mp_image)
-            hand_result = self.hand_detector.detect(mp_image)
-            face_result = self.face_detector.detect(mp_image)
+            if self.use_video_mode:
+                if timestamp_ms is None:
+                    raise ValueError("VIDEO 模式下必须提供 timestamp_ms")
+                pose_result = self.pose_detector.detect_for_video(
+                    mp_image, timestamp_ms
+                )
+                hand_result = self.hand_detector.detect_for_video(
+                    mp_image, timestamp_ms
+                )
+                face_result = self.face_detector.detect_for_video(
+                    mp_image, timestamp_ms
+                )
+            else:
+                pose_result = self.pose_detector.detect(mp_image)
+                hand_result = self.hand_detector.detect(mp_image)
+                face_result = self.face_detector.detect(mp_image)
         except Exception:
             return None, None
 
@@ -203,6 +229,76 @@ class KeypointExtractor:
         )
 
         return keypoints, valid_mask
+
+    def extract_frame_optimized(
+        self,
+        frame: np.ndarray,
+        timestamp_ms: Optional[int] = None,
+        face_skip_ratio: int = 3,
+    ) -> tuple[Optional[np.ndarray], Optional[np.ndarray], bool]:
+        """
+        优化版的提取方法：
+        1. 优先检测手部，如果没有检测到手部，直接返回，不进行后续检测。
+        2. 面部检测降频处理 (TODO: 需要缓存机制，目前简单起见暂不实现缓存复用，仅降频)
+           (注: VIDEO模式下MediaPipe内部有跟踪，跳帧可能会影响跟踪质量，但为了性能...)
+           实际上，MediaPipe VIDEO模式要求连续帧。如果跳过面部检测，会导致跟踪丢失。
+           所以这里主要优化点是：手部检测不到 -> 终止。
+
+        Args:
+            frame: BGR 图像
+            timestamp_ms: 时间戳
+            face_skip_ratio: (未使用，保留接口)
+
+        Returns:
+            (keypoints, valid_mask, hands_detected)
+            - hands_detected: bool, 是否检测到了手部
+        """
+        if not self.use_video_mode or timestamp_ms is None:
+            # 回退到普通模式
+            kp, mask = self.extract_frame(frame, timestamp_ms)
+            # 简单判断是否检测到手部 (索引 25-66 是手部)
+            has_hands = False
+            if mask is not None:
+                has_hands = np.sum(mask[25:67]) > 0
+            return kp, mask, has_hands
+
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+
+        try:
+            # 1. 检测 Pose (身体姿态通常比较稳定且对 Crop 手部有用，但在 MP Tasks API 中 Hand 独立运行)
+            # 策略调整：先检测 Hand。如果没手，直接退出。
+            # Hand Detector
+            hand_result = self.hand_detector.detect_for_video(mp_image, timestamp_ms)
+
+            has_hands = False
+            if hand_result.hand_landmarks and len(hand_result.hand_landmarks) > 0:
+                has_hands = True
+
+            if not has_hands:
+                # 没手，为了保持 Pose 跟踪 (如果需要)，可以运行 Pose，但面部绝对跳过
+                # 如果完全不运行 Pose，下一次 Pose 跟踪可能会重新初始化 (耗时)。
+                # 为了极致性能，没手直接返回。MP 内部会在下一帧尝试重新检测。
+                return None, None, False
+
+            # 2. 检测 Pose
+            pose_result = self.pose_detector.detect_for_video(mp_image, timestamp_ms)
+
+            # 3. 检测 Face (全速运行以保持跟踪，或者由调用者控制频率？)
+            # 由于 VIDEO 模式依赖时序，这里必须每帧运行才能保持最佳跟踪效果。
+            # 性能瓶颈主要在于 Face Mesh (478点)。
+            face_result = self.face_detector.detect_for_video(mp_image, timestamp_ms)
+
+            # 映射
+            keypoints, valid_mask = self._map_to_135_keypoints(
+                pose_result,
+                hand_result,
+                face_result,
+            )
+            return keypoints, valid_mask, True
+
+        except Exception:
+            return None, None, False
 
     def _map_to_135_keypoints(
         self, pose_result, hand_result, face_result
