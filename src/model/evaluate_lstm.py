@@ -19,7 +19,7 @@ def _configure_windows_console() -> None:
 # 将 src 添加到 python 路径以允许导入
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import src.config as cfg
-from src.core.labels import load_id_to_label_map_compat
+from src.core.labels import load_id_to_label_map
 from src.model.model_lstm import get_model
 from src.model.dataloader import get_dataloaders
 
@@ -137,7 +137,7 @@ def evaluate_model():
         from sklearn.metrics import classification_report
 
         # 加载标签名称
-        id_to_label = load_id_to_label_map_compat(cfg.PATHS.label_map_path)
+        id_to_label = load_id_to_label_map(cfg.PATHS.label_map_path)
         target_names = [id_to_label.get(i, str(i)) for i in range(cfg.SEQUENCE.num_classes)]
 
         # 分类报告

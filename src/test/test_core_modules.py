@@ -15,7 +15,6 @@ from src.core.hdf5_schema import (
     validate_required_fields,
 )
 from src.core.labels import load_id_to_label_map, load_label_to_id_map
-from src.core.labels import load_id_to_label_map_compat
 from src.core.paths import dataset_subset_dir, hdf5_file_path, label_map_file_path
 
 
@@ -63,26 +62,6 @@ class TestCoreModules(unittest.TestCase):
         try:
             with self.assertRaisesRegex(ValueError, "旧格式"):
                 load_label_to_id_map(json_path)
-        finally:
-            os.remove(json_path)
-
-    def test_labels_compat_loader_migrates_legacy_file(self):
-        json_path = self._write_temp_json(
-            {
-                "id_to_label": {"book": 0, "drink": 1},
-                "label_to_id": {"0": "book", "1": "drink"},
-            }
-        )
-        try:
-            id_to_label = load_id_to_label_map_compat(json_path)
-            self.assertEqual(id_to_label, {0: "book", 1: "drink"})
-
-            converted = load_label_to_id_map(json_path)
-            self.assertEqual(converted, {"book": 0, "drink": 1})
-
-            backup_file = Path(json_path + ".legacy.bak")
-            self.assertTrue(backup_file.exists())
-            backup_file.unlink()
         finally:
             os.remove(json_path)
 

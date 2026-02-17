@@ -130,3 +130,15 @@
   - `.venv` 解释器执行 `python -m unittest src.test.test_train_smoke -v` 通过。
   - `.venv` 解释器执行 `python -m unittest src.test.test_inference_smoke -v` 通过。
   - `uv run python -m compileall src && uv run python -m unittest discover -s src/test -p "test_*.py" && uv run ruff check src` 通过（27 项测试，Ruff 0 告警）。
+
+## [2026-02-17 16:48:11] 严格契约收敛
+- **目标**: 去除旧格式兼容逻辑，统一只读取新标签契约（`id_to_label: {"0": "book"}`）。
+- **代码调整**:
+  - `src/core/labels.py` 删除兼容迁移函数，仅保留严格校验加载函数。
+  - `src/model/dataloader.py`、`src/model/evaluate_lstm.py`、`src/model/realtime_inference.py` 全部改为严格加载。
+  - `src/test/test_core_modules.py` 移除兼容迁移测试，保留旧格式拒绝测试。
+- **运行验证**:
+  - `.venv` 执行 `src/data_process/preprocess_wlasl.py --limit 1 --output-dir dataset/processed_smoke4` 成功。
+  - `.venv` 执行 `python -m unittest src.test.test_train_smoke -v` 通过。
+  - `.venv` 执行 `src/model/realtime_inference.py --camera -1` 可启动，标签映射加载正常。
+  - `uv run python -m compileall src && uv run python -m unittest discover -s src/test -p "test_*.py" && uv run ruff check src` 通过（26 项测试，Ruff 0 告警）。

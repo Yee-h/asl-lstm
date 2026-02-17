@@ -25,7 +25,7 @@ def _configure_windows_console() -> None:
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import src.config as cfg
-from src.core.labels import load_id_to_label_map_compat
+from src.core.labels import load_id_to_label_map
 from src.model.model_lstm import get_model
 from src.model.dataloader import (
     preprocess_keypoints,
@@ -519,7 +519,7 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
     print(f"当前使用的设备: {device}")
 
     # 加载标签映射
-    id_to_label = load_id_to_label_map_compat(cfg.PATHS.label_map_path)
+    id_to_label = load_id_to_label_map(cfg.PATHS.label_map_path)
     if not id_to_label:
         print("警告: 标签映射为空，将直接输出类别 ID。")
 

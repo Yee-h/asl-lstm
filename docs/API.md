@@ -74,8 +74,6 @@
 - 两个映射必须完全互逆，否则视为非法契约。
 - 旧格式（如 `id_to_label: {"book": 0}`）会被解析器拒绝并抛出明确异常。
 - 统一解析函数: `src/model/dataloader.py` 中的 `load_label_to_id_map`。
-- 运行时兼容函数: `src/core/labels.py` 中的 `load_label_to_id_map_compat` / `load_id_to_label_map_compat`。
-  - 当检测到旧格式文件时，会自动迁移为新契约并生成 `*.legacy.bak` 备份。
 
 ## 4. 统一质量门禁
 

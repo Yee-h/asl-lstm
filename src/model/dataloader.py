@@ -11,8 +11,7 @@ from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 # Add src to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import src.config as cfg
-from src.core.labels import load_label_to_id_map as _load_label_to_id_map_strict
-from src.core.labels import load_label_to_id_map_compat
+from src.core.labels import load_label_to_id_map
 
 
 BODY_LEFT_RIGHT_PAIRS = [
@@ -28,10 +27,6 @@ BODY_LEFT_RIGHT_PAIRS = [
     (20, 23),
     (21, 24),
 ]
-
-
-def load_label_to_id_map(label_map_path: str) -> dict[str, int]:
-    return _load_label_to_id_map_strict(label_map_path)
 
 
 def compute_sample_weights(label_ids: list[int], power: float = 1.0) -> np.ndarray:
@@ -254,7 +249,7 @@ class CSLDataset(Dataset):
         if cfg.PREPROCESS.enable_standardize:
             self.feature_stats = load_feature_stats(cfg.PREPROCESS.feature_stats_path)
 
-        self.label_to_id = load_label_to_id_map_compat(label_map_path)
+        self.label_to_id = load_label_to_id_map(label_map_path)
 
         self.data_cache = []
         skipped_low_quality = 0
