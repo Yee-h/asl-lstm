@@ -36,7 +36,6 @@ import sys
 import urllib.request
 import warnings
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from functools import partial
 from pathlib import Path
 from typing import Optional
 
@@ -44,13 +43,10 @@ import cv2
 import h5py
 import mediapipe as mp
 import numpy as np
-from scipy import signal
 from tqdm import tqdm
 
 # 允许从项目根目录导入配置（config.py）
-sys.path.append(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import src.config as cfg
 
 # 抑制 MediaPipe 的警告信息
@@ -108,11 +104,11 @@ def download_model(url: str, path: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
     if os.path.exists(path):
-        print(f"  ✓ 已存在: {os.path.basename(path)}")
+        print(f"  [OK] 已存在: {os.path.basename(path)}")
     else:
-        print(f"  ↓ 下载中: {os.path.basename(path)}...")
+        print(f"  [DL] 下载中: {os.path.basename(path)}...")
         urllib.request.urlretrieve(url, path)
-        print(f"  ✓ 下载完成: {os.path.basename(path)}")
+        print(f"  [OK] 下载完成: {os.path.basename(path)}")
 
 
 class KeypointExtractor:
@@ -127,9 +123,7 @@ class KeypointExtractor:
                             默认为 False (IMAGE 模式)，以保持与现有预处理脚本的兼容性
         """
         self.use_video_mode = use_video_mode
-        self.running_mode = (
-            vision.RunningMode.VIDEO if use_video_mode else vision.RunningMode.IMAGE
-        )
+        self.running_mode = vision.RunningMode.VIDEO if use_video_mode else vision.RunningMode.IMAGE
 
         # 下载模型
         print("  检查和下载模型文件...")
@@ -205,15 +199,9 @@ class KeypointExtractor:
             if self.use_video_mode:
                 if timestamp_ms is None:
                     raise ValueError("VIDEO 模式下必须提供 timestamp_ms")
-                pose_result = self.pose_detector.detect_for_video(
-                    mp_image, timestamp_ms
-                )
-                hand_result = self.hand_detector.detect_for_video(
-                    mp_image, timestamp_ms
-                )
-                face_result = self.face_detector.detect_for_video(
-                    mp_image, timestamp_ms
-                )
+                pose_result = self.pose_detector.detect_for_video(mp_image, timestamp_ms)
+                hand_result = self.hand_detector.detect_for_video(mp_image, timestamp_ms)
+                face_result = self.face_detector.detect_for_video(mp_image, timestamp_ms)
             else:
                 pose_result = self.pose_detector.detect(mp_image)
                 hand_result = self.hand_detector.detect(mp_image)
@@ -520,9 +508,7 @@ class PreprocessHelper:
         data = raw_frames.transpose(0, 2, 1).astype(np.float32)  # (T, 135, 2)
 
         if raw_masks is None:
-            masks = ((raw_frames[:, 0, :] != 0) | (raw_frames[:, 1, :] != 0)).astype(
-                np.uint8
-            )
+            masks = ((raw_frames[:, 0, :] != 0) | (raw_frames[:, 1, :] != 0)).astype(np.uint8)
         else:
             masks = raw_masks.astype(np.uint8)
 
@@ -622,10 +608,7 @@ class PreprocessHelper:
         eps = float(cfg.PREPROCESS.normalize_eps)
 
         for t in range(aligned.shape[0]):
-            if (
-                mask[t, self.LEFT_SHOULDER_IDX] == 0
-                or mask[t, self.RIGHT_SHOULDER_IDX] == 0
-            ):
+            if mask[t, self.LEFT_SHOULDER_IDX] == 0 or mask[t, self.RIGHT_SHOULDER_IDX] == 0:
                 continue
 
             left = aligned[t, self.LEFT_SHOULDER_IDX, :2]
@@ -746,9 +729,7 @@ class PreprocessHelper:
 
         return np.concatenate([data, velocity], axis=-1)
 
-    def _add_acceleration_features(
-        self, data: np.ndarray, valid_len: int
-    ) -> np.ndarray:
+    def _add_acceleration_features(self, data: np.ndarray, valid_len: int) -> np.ndarray:
         """在 x,y,dx,dy 基础上增加二阶差分加速度 (ddx, ddy)。"""
         if data.shape[0] == 0 or data.shape[2] < 4:
             return data
@@ -756,9 +737,7 @@ class PreprocessHelper:
         velocity = data[:, :, 2:4]
         acceleration = np.zeros_like(velocity, dtype=np.float32)
         if valid_len > 1:
-            acceleration[1:valid_len] = (
-                velocity[1:valid_len] - velocity[: valid_len - 1]
-            )
+            acceleration[1:valid_len] = velocity[1:valid_len] - velocity[: valid_len - 1]
 
         return np.concatenate([data, acceleration], axis=-1)
 
@@ -1075,16 +1054,16 @@ def create_maplabels_json(
     - 对于 WLASL300，使用索引 0-299 对应的 gloss
     - 以此类推
 
-    官方格式：
+    标签映射契约：
     {
         "id_to_label": {
-            "book": 0,
-            "drink": 1,
+            "0": "book",
+            "1": "drink",
             ...
         },
         "label_to_id": {
-            "0": "book",
-            "1": "drink",
+            "book": 0,
+            "drink": 1,
             ...
         }
     }
@@ -1112,19 +1091,19 @@ def create_maplabels_json(
             # 确定要使用的 gloss 范围
             num_classes = subset if subset else len(wlasl_data)
 
-            # 构建标签映射：gloss -> index (保持 WLASL_v0.3.json 中的顺序)
+            # 构建标签映射，保持 WLASL_v0.3.json 中的顺序
             id_to_label = {}
             label_to_id = {}
 
             for idx in range(min(num_classes, len(wlasl_data))):
                 gloss = wlasl_data[idx]["gloss"]
-                id_to_label[gloss] = idx
-                label_to_id[str(idx)] = gloss
+                id_to_label[str(idx)] = gloss
+                label_to_id[gloss] = idx
 
             print(f"  从 WLASL_v0.3.json 读取标签顺序: {len(id_to_label)} 个类别")
 
             # 验证所有收集到的标签都在映射中
-            missing_labels = labels - set(id_to_label.keys())
+            missing_labels = labels - set(label_to_id.keys())
             if missing_labels:
                 print(
                     f"  警告: 以下标签不在 WLASL_v0.3.json 前 {num_classes} 个中: {missing_labels}"
@@ -1132,21 +1111,21 @@ def create_maplabels_json(
                 # 为缺失的标签分配 ID（从 num_classes 开始）
                 for label in sorted(missing_labels):
                     print(f"    添加缺失标签: {label} -> {num_classes}")
-                    id_to_label[label] = num_classes
-                    label_to_id[str(num_classes)] = label
+                    id_to_label[str(num_classes)] = label
+                    label_to_id[label] = num_classes
                     num_classes += 1
         except Exception as e:
             print(f"  警告: 无法读取 {wlasl_json_path}: {e}")
-            print(f"  回退到字母顺序排序")
+            print("  回退到字母顺序排序")
             sorted_labels = sorted(labels)
-            id_to_label = {label: idx for idx, label in enumerate(sorted_labels)}
-            label_to_id = {str(idx): label for idx, label in enumerate(sorted_labels)}
+            id_to_label = {str(idx): label for idx, label in enumerate(sorted_labels)}
+            label_to_id = {label: idx for idx, label in enumerate(sorted_labels)}
     else:
         # 如果没有 WLASL_v0.3.json，按字母顺序排序并分配 ID（回退方案）
         print(f"  警告: 未找到 {wlasl_json_path}，使用字母顺序排序")
         sorted_labels = sorted(labels)
-        id_to_label = {label: idx for idx, label in enumerate(sorted_labels)}
-        label_to_id = {str(idx): label for idx, label in enumerate(sorted_labels)}
+        id_to_label = {str(idx): label for idx, label in enumerate(sorted_labels)}
+        label_to_id = {label: idx for idx, label in enumerate(sorted_labels)}
 
     # 写入 JSON 文件（包含双向映射，匹配官方格式）
     maplabels = {"id_to_label": id_to_label, "label_to_id": label_to_id}
@@ -1154,7 +1133,7 @@ def create_maplabels_json(
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(maplabels, f, indent=4, ensure_ascii=False)
 
-    print(f"  已生成标签映射文件: {output_path} ({len(id_to_label)} 个类别)")
+    print(f"  已生成标签映射文件: {output_path} ({len(label_to_id)} 个类别)")
 
 
 def compute_train_feature_stats(train_data: dict) -> Optional[dict]:
@@ -1368,7 +1347,11 @@ def main():
             )
         )
 
-    print(f"\n[4/5] 处理视频并提取关键点...")
+    if tasks:
+        num_workers = min(num_workers, len(tasks))
+    use_multiprocessing = num_workers > 1
+
+    print("\n[4/5] 处理视频并提取关键点...")
     if use_multiprocessing:
         print(f"  使用 {num_workers} 个工作进程并行处理")
 
@@ -1378,14 +1361,10 @@ def main():
             initializer=_worker_init,
         ) as executor:
             # 提交所有任务
-            futures = {
-                executor.submit(_worker_process_video, task): task[0] for task in tasks
-            }
+            futures = {executor.submit(_worker_process_video, task): task[0] for task in tasks}
 
             # 收集结果
-            for future in tqdm(
-                as_completed(futures), total=len(futures), desc="Processing videos"
-            ):
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing videos"):
                 result = future.result()
                 if result["success"]:
                     video_id = result["video_id"]
@@ -1416,9 +1395,7 @@ def main():
         extractor = KeypointExtractor()
         preprocess_helper = PreprocessHelper(max_frames=cfg.SEQUENCE.max_frames)
 
-        for video_id, info, video_path in tqdm(
-            videos_to_process, desc="Processing videos"
-        ):
+        for video_id, info, video_path in tqdm(videos_to_process, desc="Processing videos"):
             try:
                 keypoints, valid_len, width, height, mask, quality = process_video(
                     video_path,
@@ -1470,17 +1447,13 @@ def main():
         if len(data) > 0:
             # 官方文件命名格式: WLASL100_135-Train.hdf5
             split_name = split_name_map.get(split, split.capitalize())
-            output_path = os.path.join(
-                args.output_dir, f"{args.prefix}_135-{split_name}.hdf5"
-            )
+            output_path = os.path.join(args.output_dir, f"{args.prefix}_135-{split_name}.hdf5")
             create_hdf5_file(output_path, data, split=split, subset=args.subset)
             print(f"  {split}: 已保存 {len(data)} 个样本到 {output_path}")
 
     # 生成 maplabels.json 文件
     if args.subset:
-        maplabels_path = os.path.join(
-            args.output_dir, f"wlasl_{args.subset}_maplabels.json"
-        )
+        maplabels_path = os.path.join(args.output_dir, f"wlasl_{args.subset}_maplabels.json")
     else:
         maplabels_path = os.path.join(args.output_dir, "wlasl_maplabels.json")
     create_maplabels_json(maplabels_path, split_data, subset=args.subset)

@@ -1,52 +1,94 @@
+import argparse
+import os
+import sys
+from pathlib import Path
+
 import h5py
-import numpy as np
 
-# --- 配置文件路径 ---
-# 注意：在 Windows 下路径分隔符可以使用 '/' 或 '\\'
-file_path = "d:/Document/Code/csl-lstm/dataset/processed/WLASL100/WLASL100_135-Test.hdf5"
 
-try:
-    # 以只读模式打开 HDF5 文件
-    with h5py.File(file_path, 'r') as f:
-        # 1. 检查文件内容
-        if not f.keys():
-            print("错误：文件中没有样本数据！")
-            exit()
-            
-        # 选择第一个样本进行检查
-        sample_id = list(f.keys())[0]
-        
-        # 2. 读取样本数据
-        # 数据的预期结构通常为: (总帧数, 坐标维度, 关键点数量)
-        # 这里的坐标维度通常是 2 (x, y) 或 3 (x, y, z)
-        data = f[sample_id]['data'][:]
-        
-        print(f"\n{'='*50}")
-        print(f"检查样本 ID: {sample_id}")
-        print(f"数据总形状 (Data Shape): {data.shape}")
-        print(f"  - 帧数 (Frames): {data.shape[0]}")
-        print(f"  - 坐标维度 (Dims): {data.shape[1]} (通常为 x, y)")
-        print(f"  - 关键点数量 (Landmarks): {data.shape[2]}")
-        print(f"{'='*50}\n")
-        
-        # 3. 打印具体数值以验证数据有效性
-        # 取第一帧 (索引为 0) 进行展示
-        frame_idx = 0
-        frame_data = data[frame_idx]  # 形状为 (2, 135)
-        
-        print(f"【第 {frame_idx+1} 帧 - 前 5 个关键点的具体坐标值】:")
-        print("-" * 40)
-        
-        for i in range(5):
-            # 获取对应的 x 和 y 坐标
-            x_val = frame_data[0, i]
-            y_val = frame_data[1, i]
-            print(f"  关键点 {i: >2}: x = {x_val: .6f},  y = {y_val: .6f}")
-            
-        print("-" * 40)
-        print("\n数据检查提示：如果能够看到非零的浮点数值，说明特征提取成功。")
+sys.path.append(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
+import src.config as cfg
 
-except Exception as e:
-    # 异常处理，捕获读取过程中可能出现的错误
-    print(f"程序运行发生错误: {e}")
-    print("建议：请确认 HDF5 文件路径是否正确，且文件没有被其他进程占用。")
+
+def default_data_root() -> Path:
+    return Path(cfg.PATHS.project_root) / "dataset" / "processed"
+
+
+def build_hdf5_path(dataset_scale: str, split: str, data_root: Path) -> Path:
+    file_name = f"WLASL{dataset_scale}_135-{split}.hdf5"
+    return data_root / f"WLASL{dataset_scale}" / file_name
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="检查 HDF5 坐标样本结构")
+    parser.add_argument(
+        "--dataset-scale",
+        default=str(cfg.PATHS.dataset_scale),
+        choices=["100", "300", "1000", "2000"],
+        help="数据集规模，默认读取 config.py 配置",
+    )
+    parser.add_argument(
+        "--split",
+        default="Test",
+        choices=["Train", "Val", "Test"],
+        help="数据划分，默认 Test",
+    )
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=default_data_root(),
+        help="已处理数据根目录，默认 <project>/dataset/processed",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    file_path = build_hdf5_path(args.dataset_scale, args.split, args.data_root)
+
+    print(f"解析后的数据规模: WLASL{args.dataset_scale}")
+    print(f"解析后的划分参数: {args.split}")
+    print(f"解析后的实际文件路径: {file_path.resolve()}")
+
+    if not file_path.exists():
+        print("错误: HDF5 文件不存在")
+        return 1
+
+    try:
+        with h5py.File(file_path, "r") as h5_obj:
+            if not h5_obj.keys():
+                print("错误: 文件中没有样本数据")
+                return 1
+
+            sample_id = list(h5_obj.keys())[0]
+            data = h5_obj[sample_id]["data"][:]
+
+            print(f"\n{'=' * 50}")
+            print(f"检查样本 ID: {sample_id}")
+            print(f"数据总形状: {data.shape}")
+            print(f"  - 帧数: {data.shape[0]}")
+            print(f"  - 坐标维度: {data.shape[1]}")
+            print(f"  - 关键点数量: {data.shape[2]}")
+            print(f"{'=' * 50}\n")
+
+            frame_idx = 0
+            frame_data = data[frame_idx]
+            print(f"第 {frame_idx + 1} 帧前 5 个关键点:")
+            print("-" * 40)
+            for idx in range(5):
+                x_val = frame_data[0, idx]
+                y_val = frame_data[1, idx]
+                print(f"关键点 {idx:>2}: x = {x_val:.6f}, y = {y_val:.6f}")
+            print("-" * 40)
+
+    except Exception as exc:
+        print(f"程序运行发生错误: {exc}")
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

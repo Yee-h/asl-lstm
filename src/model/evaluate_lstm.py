@@ -5,56 +5,23 @@ import os
 import io
 import time
 from tqdm import tqdm
-import json
 
-# 修复 Windows 终端中文乱码和进度条问题
-if sys.platform == "win32":
-    # 设置标准输出和错误为 UTF-8 编码
+
+def _configure_windows_console() -> None:
+    if sys.platform != "win32":
+        return
+
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-    # 启用 Windows 终端的 ANSI 转义序列支持
     os.system("")
 
+
 # 将 src 添加到 python 路径以允许导入
-sys.path.append(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import src.config as cfg
+from src.core.labels import load_id_to_label_map_compat
 from src.model.model_lstm import get_model
 from src.model.dataloader import get_dataloaders
-
-
-def load_label_map_inverse():
-    """加载标签映射并将其反转为 ID 到名称的映射。"""
-    with open(cfg.PATHS.label_map_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    # 提取映射字典
-    if "id_to_label" in data:
-        mapping = data["id_to_label"]
-    elif "label_to_id" in data:
-        mapping = data["label_to_id"]
-    else:
-        mapping = data
-
-    if not mapping:
-        return {}
-
-    # 检查第一个项以此推断映射方向
-    # 我们需要返回 {int(ID): str(Label)}
-    k, v = next(iter(mapping.items()))
-
-    # 情况 1: 键是 ID (数字字符串或整数), 值是 Label
-    # 例如: "0": "book"
-    if str(k).isdigit():
-        return {int(key): val for key, val in mapping.items()}
-
-    # 情况 2: 值是 ID (数字), 键是 Label
-    # 例如: "book": 0 (这是我们遇到的情况，即使键名是 id_to_label)
-    if isinstance(v, int) or (isinstance(v, str) and v.isdigit()):
-        return {int(val): key for key, val in mapping.items()}
-
-    return {}
 
 
 def evaluate_model():
@@ -156,7 +123,7 @@ def evaluate_model():
     accuracy = 100 * correct / total
 
     print("\n" + "=" * 40)
-    print(f"评估结果")
+    print("评估结果")
     print("=" * 40)
     print(f"模型: {os.path.basename(model_path)}")
     print(f"测试集 Loss:     {avg_loss:.4f}")
@@ -167,14 +134,11 @@ def evaluate_model():
 
     # 8. 详细报告 (如果可用 sklearn)
     try:
-        from sklearn.metrics import classification_report, confusion_matrix
-        import numpy as np
+        from sklearn.metrics import classification_report
 
         # 加载标签名称
-        id_to_label = load_label_map_inverse()
-        target_names = [
-            id_to_label.get(i, str(i)) for i in range(cfg.SEQUENCE.num_classes)
-        ]
+        id_to_label = load_id_to_label_map_compat(cfg.PATHS.label_map_path)
+        target_names = [id_to_label.get(i, str(i)) for i in range(cfg.SEQUENCE.num_classes)]
 
         # 分类报告
         print("\n详细分类报告:")
@@ -198,7 +162,7 @@ def evaluate_model():
 
         with open(log_path, "w", encoding="utf-8") as f:
             f.write("=" * 40 + "\n")
-            f.write(f"评估报告\n")
+            f.write("评估报告\n")
             f.write("=" * 40 + "\n")
             f.write(f"时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"模型: {model_path}\n")
@@ -219,4 +183,5 @@ def evaluate_model():
 
 
 if __name__ == "__main__":
+    _configure_windows_console()
     evaluate_model()

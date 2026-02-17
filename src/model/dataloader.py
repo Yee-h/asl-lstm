@@ -9,10 +9,10 @@ from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
 
 # Add src to path
-sys.path.append(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import src.config as cfg
+from src.core.labels import load_label_to_id_map as _load_label_to_id_map_strict
+from src.core.labels import load_label_to_id_map_compat
 
 
 BODY_LEFT_RIGHT_PAIRS = [
@@ -30,6 +30,10 @@ BODY_LEFT_RIGHT_PAIRS = [
 ]
 
 
+def load_label_to_id_map(label_map_path: str) -> dict[str, int]:
+    return _load_label_to_id_map_strict(label_map_path)
+
+
 def compute_sample_weights(label_ids: list[int], power: float = 1.0) -> np.ndarray:
     """Compute inverse-frequency sample weights for class-balanced sampling."""
     if not label_ids:
@@ -37,9 +41,7 @@ def compute_sample_weights(label_ids: list[int], power: float = 1.0) -> np.ndarr
 
     labels = np.asarray(label_ids, dtype=np.int64)
     unique_labels, counts = np.unique(labels, return_counts=True)
-    class_count_map = {
-        int(label): int(count) for label, count in zip(unique_labels, counts)
-    }
+    class_count_map = {int(label): int(count) for label, count in zip(unique_labels, counts)}
 
     weights = np.asarray(
         [1.0 / (class_count_map[int(label)] ** float(power)) for label in labels],
@@ -60,9 +62,7 @@ def build_weighted_sampler(
         return None
 
     weight_tensor = torch.as_tensor(weights, dtype=torch.double)
-    return WeightedRandomSampler(
-        weight_tensor, num_samples=len(weight_tensor), replacement=True
-    )
+    return WeightedRandomSampler(weight_tensor, num_samples=len(weight_tensor), replacement=True)
 
 
 def load_feature_stats(stats_path: str) -> dict | None:
@@ -82,9 +82,7 @@ def _compute_velocity(pos_data: np.ndarray, valid_len: int) -> np.ndarray:
 def _compute_acceleration(velocity_data: np.ndarray, valid_len: int) -> np.ndarray:
     acceleration = np.zeros_like(velocity_data, dtype=np.float32)
     if valid_len > 1:
-        acceleration[1:valid_len] = (
-            velocity_data[1:valid_len] - velocity_data[: valid_len - 1]
-        )
+        acceleration[1:valid_len] = velocity_data[1:valid_len] - velocity_data[: valid_len - 1]
     return acceleration
 
 
@@ -133,9 +131,7 @@ def _apply_standardization(
 
     eps = cfg.PREPROCESS.standardize_eps
 
-    normalized = (standardized[:valid_len] - means[None, :, None]) / (
-        stds[None, :, None] + eps
-    )
+    normalized = (standardized[:valid_len] - means[None, :, None]) / (stds[None, :, None] + eps)
 
     if mask is None:
         standardized[:valid_len] = normalized
@@ -206,9 +202,7 @@ def preprocess_keypoints(
         data = data[:max_frames]
         valid_len = min(valid_len, max_frames)
     elif data.shape[0] < max_frames:
-        pad = np.zeros(
-            (max_frames - data.shape[0], data.shape[1], data.shape[2]), dtype=np.float32
-        )
+        pad = np.zeros((max_frames - data.shape[0], data.shape[1], data.shape[2]), dtype=np.float32)
         data = np.concatenate([data, pad], axis=0)
 
     if mask_array is not None:
@@ -260,21 +254,7 @@ class CSLDataset(Dataset):
         if cfg.PREPROCESS.enable_standardize:
             self.feature_stats = load_feature_stats(cfg.PREPROCESS.feature_stats_path)
 
-        with open(label_map_path, "r", encoding="utf-8") as f:
-            label_map = json.load(f)
-
-        if "id_to_label" in label_map:
-            self.label_to_id = label_map["id_to_label"]
-        elif "label_to_id" in label_map:
-            sample_key = next(iter(label_map["label_to_id"].keys()))
-            if sample_key.isdigit():
-                self.label_to_id = {
-                    v: int(k) for k, v in label_map["label_to_id"].items()
-                }
-            else:
-                self.label_to_id = label_map["label_to_id"]
-        else:
-            self.label_to_id = label_map
+        self.label_to_id = load_label_to_id_map_compat(label_map_path)
 
         self.data_cache = []
         skipped_low_quality = 0
@@ -296,30 +276,19 @@ class CSLDataset(Dataset):
                 else:
                     length = min(feature.shape[0], self.max_frames)
 
-                mask = (
-                    np.array(item["mask"], dtype=np.uint8)
-                    if "mask" in item.keys()
-                    else None
-                )
+                mask = np.array(item["mask"], dtype=np.uint8) if "mask" in item.keys() else None
 
                 quality = (
-                    float(np.asarray(item["quality"])[()])
-                    if "quality" in item.keys()
-                    else None
+                    float(np.asarray(item["quality"])[()]) if "quality" in item.keys() else None
                 )
 
-                if (
-                    quality is not None
-                    and quality < cfg.PREPROCESS.min_valid_ratio_per_sample
-                ):
+                if quality is not None and quality < cfg.PREPROCESS.min_valid_ratio_per_sample:
                     skipped_low_quality += 1
                     continue
 
                 label_raw = np.asarray(item["label"])[()]
                 label_str = (
-                    label_raw.decode("utf-8")
-                    if isinstance(label_raw, bytes)
-                    else str(label_raw)
+                    label_raw.decode("utf-8") if isinstance(label_raw, bytes) else str(label_raw)
                 )
 
                 if label_str in self.label_to_id:
@@ -360,8 +329,7 @@ class CSLDataset(Dataset):
             self.max_frames,
             valid_len=valid_len,
             stats=self.feature_stats,
-            standardize=cfg.PREPROCESS.enable_standardize
-            and self.feature_stats is not None,
+            standardize=cfg.PREPROCESS.enable_standardize and self.feature_stats is not None,
             mask=mask,
         )
 
@@ -378,9 +346,7 @@ class CSLDataset(Dataset):
         if np.random.random() >= cfg.AUGMENTATION.time_warp_prob:
             return data, mask
 
-        scale = np.random.uniform(
-            cfg.AUGMENTATION.time_warp_min, cfg.AUGMENTATION.time_warp_max
-        )
+        scale = np.random.uniform(cfg.AUGMENTATION.time_warp_min, cfg.AUGMENTATION.time_warp_max)
         src_t = np.arange(valid_len, dtype=np.float32)
         dst_t = np.clip(
             np.linspace(0, valid_len - 1, valid_len, dtype=np.float32) * scale,
@@ -391,9 +357,7 @@ class CSLDataset(Dataset):
         warped = data.copy()
         for c in range(data.shape[1]):
             for v in range(data.shape[2]):
-                warped[:valid_len, c, v] = np.interp(
-                    dst_t, src_t, data[:valid_len, c, v]
-                )
+                warped[:valid_len, c, v] = np.interp(dst_t, src_t, data[:valid_len, c, v])
 
         if mask is None:
             return warped, None
@@ -408,9 +372,7 @@ class CSLDataset(Dataset):
                 np.interp(dst_t, src_t, warped_mask[:, v].astype(np.float32)) >= 0.5
             ).astype(np.uint8)
 
-        warped[:valid_len] = np.where(
-            warped_mask[:, None, :].astype(bool), warped[:valid_len], 0.0
-        )
+        warped[:valid_len] = np.where(warped_mask[:, None, :].astype(bool), warped[:valid_len], 0.0)
         return warped, warped_mask
 
     def _random_frame_dropout(
@@ -429,9 +391,7 @@ class CSLDataset(Dataset):
             return data, mask
 
         num_drop = np.random.randint(1, max_drop + 1)
-        drop_indices = np.random.choice(
-            np.arange(1, valid_len), size=num_drop, replace=False
-        )
+        drop_indices = np.random.choice(np.arange(1, valid_len), size=num_drop, replace=False)
 
         dropped = data.copy()
         dropped_mask = None
@@ -484,13 +444,9 @@ class CSLDataset(Dataset):
 
         valid_mask = work_mask[:, None, :].astype(bool)
 
-        angle = np.random.uniform(
-            -cfg.AUGMENTATION.rotation_range, cfg.AUGMENTATION.rotation_range
-        )
+        angle = np.random.uniform(-cfg.AUGMENTATION.rotation_range, cfg.AUGMENTATION.rotation_range)
         theta = np.radians(angle)
-        scale = np.random.uniform(
-            cfg.AUGMENTATION.scale_min, cfg.AUGMENTATION.scale_max
-        )
+        scale = np.random.uniform(cfg.AUGMENTATION.scale_min, cfg.AUGMENTATION.scale_max)
         tx = np.random.uniform(-cfg.AUGMENTATION.translate, cfg.AUGMENTATION.translate)
         ty = np.random.uniform(-cfg.AUGMENTATION.translate, cfg.AUGMENTATION.translate)
 
@@ -525,9 +481,9 @@ class CSLDataset(Dataset):
                 work[:, 4:6, :],
             )
 
-        noise = np.random.normal(
-            loc=0.0, scale=cfg.AUGMENTATION.noise_std, size=work.shape
-        ).astype(np.float32)
+        noise = np.random.normal(loc=0.0, scale=cfg.AUGMENTATION.noise_std, size=work.shape).astype(
+            np.float32
+        )
         work = work + noise * valid_mask.astype(np.float32)
 
         if np.random.random() < cfg.AUGMENTATION.hflip_prob:
@@ -553,24 +509,16 @@ class CSLDataset(Dataset):
 
 def get_dataloaders():
     """创建并返回训练、验证和测试数据加载器。"""
-    train_dataset = CSLDataset(
-        cfg.PATHS.train_data_path, cfg.PATHS.label_map_path, augment=True
-    )
-    val_dataset = CSLDataset(
-        cfg.PATHS.val_data_path, cfg.PATHS.label_map_path, augment=False
-    )
-    test_dataset = CSLDataset(
-        cfg.PATHS.test_data_path, cfg.PATHS.label_map_path, augment=False
-    )
+    train_dataset = CSLDataset(cfg.PATHS.train_data_path, cfg.PATHS.label_map_path, augment=True)
+    val_dataset = CSLDataset(cfg.PATHS.val_data_path, cfg.PATHS.label_map_path, augment=False)
+    test_dataset = CSLDataset(cfg.PATHS.test_data_path, cfg.PATHS.label_map_path, augment=False)
 
     pin_memory = torch.cuda.is_available() and cfg.TRAINING.device == "cuda"
 
     train_sampler = None
     if cfg.TRAINING.use_weighted_sampler:
         train_labels = [sample["label_id"] for sample in train_dataset.data_cache]
-        train_sampler = build_weighted_sampler(
-            train_labels, power=cfg.TRAINING.sampler_power
-        )
+        train_sampler = build_weighted_sampler(train_labels, power=cfg.TRAINING.sampler_power)
 
     train_shuffle = train_sampler is None
     num_workers = max(0, int(cfg.TRAINING.dataloader_num_workers))

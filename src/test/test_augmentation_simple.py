@@ -54,7 +54,7 @@ def main():
     )
 
     val_samples = []
-    print(f"Getting validation sample 0 twice:")
+    print("Getting validation sample 0 twice:")
     for i in range(2):
         data, _, length = val_dataset[0]
         val_samples.append(data.numpy())

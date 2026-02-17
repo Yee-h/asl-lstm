@@ -3,30 +3,27 @@ import torch.nn as nn
 import torch.optim as optim
 import sys
 import os
-import time
 import io
+import importlib.util
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-import numpy as np
 
-# 修复 Windows 终端中文乱码和进度条问题
-if sys.platform == "win32":
-    # 设置标准输出和错误为 UTF-8 编码
+
+def _configure_windows_console() -> None:
+    if sys.platform != "win32":
+        return
+
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-    # 启用 Windows 终端的 ANSI 转义序列支持（用于 tqdm 进度条）
     os.system("")
 
+
 # 检查是否可以绘图，否则使用非交互式后端
-try:
-    import tkinter
-except ImportError:
+if importlib.util.find_spec("tkinter") is None:
     plt.switch_backend("agg")
 
 # 将 src 目录添加到路径
-sys.path.append(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import src.config as cfg
 from src.model.model_lstm import get_model
 from src.model.dataloader import get_dataloaders
@@ -86,9 +83,7 @@ def train():
 
     early_stopper = None
     if cfg.TRAINING.early_stopping_enabled:
-        metric_mode = (
-            "max" if cfg.TRAINING.early_stopping_metric == "val_acc" else "min"
-        )
+        metric_mode = "max" if cfg.TRAINING.early_stopping_metric == "val_acc" else "min"
         early_stopper = EarlyStopping(
             mode=metric_mode,
             patience=cfg.TRAINING.early_stopping_patience,
@@ -107,9 +102,7 @@ def train():
     print("开始训练...")
 
     accum_steps = max(1, int(cfg.TRAINING.grad_accum_steps))
-    print(
-        f"梯度累积步数: {accum_steps} (等效 Batch Size: {cfg.TRAINING.batch_size * accum_steps})"
-    )
+    print(f"梯度累积步数: {accum_steps} (等效 Batch Size: {cfg.TRAINING.batch_size * accum_steps})")
 
     for epoch in range(cfg.TRAINING.num_epochs):
         model.train()  # 设置为训练模式 (开启 Dropout 等)
@@ -146,9 +139,7 @@ def train():
             # --- 反向传播和优化 ---
             scaled_loss.backward()  # 计算梯度
 
-            should_step = ((step + 1) % accum_steps == 0) or (
-                (step + 1) == len(train_loader)
-            )
+            should_step = ((step + 1) % accum_steps == 0) or ((step + 1) == len(train_loader))
             if should_step:
                 if cfg.TRAINING.grad_clip_max_norm > 0:
                     torch.nn.utils.clip_grad_norm_(
@@ -232,7 +223,7 @@ def train():
         plt.tight_layout()
         plt.savefig(os.path.join(cfg.PATHS.model_save_dir, "training_metrics.png"))
         plt.close()
-        print(f"  训练曲线已更新")
+        print("  训练曲线已更新")
 
         # --- 更新学习率 (基于验证集 Loss) ---
         scheduler.step(val_loss)
@@ -253,4 +244,5 @@ def train():
 
 
 if __name__ == "__main__":
+    _configure_windows_console()
     train()

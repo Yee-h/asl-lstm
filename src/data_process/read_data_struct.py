@@ -9,7 +9,8 @@ import numpy as np
 sys.path.append(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
-import src.config as cfg
+from src.core.hdf5_schema import REQUIRED_SAMPLE_FIELDS, missing_required_fields
+from src.core.paths import hdf5_file_path, processed_data_root
 
 
 def _enable_utf8_console_output() -> None:
@@ -34,15 +35,11 @@ def _enable_utf8_console_output() -> None:
 
 
 def _default_data_root() -> Path:
-    return Path(cfg.PATHS.project_root) / "dataset" / "processed"
+    return processed_data_root()
 
 
 def _build_file_path(dataset: str, split: str, data_root: Path | None = None) -> Path:
-    if data_root is None:
-        data_root = _default_data_root()
-    subset_dir = data_root / f"WLASL{dataset}"
-    filename = f"WLASL{dataset}_135-{split}.hdf5"
-    return subset_dir / filename
+    return hdf5_file_path(dataset, split, data_root=data_root)
 
 
 def inspect_hdf5(file_path: Path) -> None:
@@ -83,25 +80,11 @@ def inspect_hdf5(file_path: Path) -> None:
             print(f"\n---- 深入检查第一个组 ('{first_key}') ----")
             first_group = f[first_key]
             if isinstance(first_group, h5py.Group):
-                required_fields = [
-                    "data",
-                    "length",
-                    "label",
-                    "video_name",
-                    "width",
-                    "height",
-                    "mask",
-                    "quality",
-                ]
-                missing = [
-                    field for field in required_fields if field not in first_group
-                ]
+                missing = missing_required_fields(first_group.keys())
                 if missing:
                     print(f"缺少字段: {missing}")
                 else:
-                    print(
-                        "字段检查: data/length/label/video_name/width/height/mask/quality 全部存在"
-                    )
+                    print(f"字段检查: {', '.join(REQUIRED_SAMPLE_FIELDS)} 全部存在")
 
                 def print_group_structure(name, obj):
                     indent = "  " * (name.count("/") + 1)

@@ -1,12 +1,9 @@
 import torch
-import torch.nn as nn
 import sys
 import os
-from tqdm import tqdm
 
 # Add src to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-import src.config as cfg
 
 def validate(model, val_loader, criterion, device):
     """

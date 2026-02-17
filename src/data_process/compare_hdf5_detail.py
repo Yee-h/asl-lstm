@@ -17,9 +17,7 @@ import numpy as np
 import os
 import sys
 
-sys.path.append(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import src.config as cfg
 
 
@@ -37,9 +35,7 @@ def compare_maplabels():
     official_path = os.path.join(
         cfg.PATHS.project_root, f"WLASL{subset}", f"wlasl_{subset}_maplabels.json"
     )
-    processed_path = os.path.join(
-        cfg.PATHS.processed_data_dir, f"wlasl_{subset}_maplabels.json"
-    )
+    processed_path = os.path.join(cfg.PATHS.processed_data_dir, f"wlasl_{subset}_maplabels.json")
 
     print("=" * 80)
     print("1. 标签映射文件对比")
@@ -80,7 +76,9 @@ def compare_maplabels():
 
     # 统计差异
     total_diff = sum(
-        1 for l in all_labels if o_id_to_label.get(l) != p_id_to_label.get(l)
+        1
+        for label_name in all_labels
+        if o_id_to_label.get(label_name) != p_id_to_label.get(label_name)
     )
     print(f"\n总差异数: {total_diff} / {len(all_labels)}")
 
@@ -94,9 +92,7 @@ def compare_hdf5_structure(split: str):
     official_path = os.path.join(
         cfg.PATHS.project_root, f"WLASL{subset}", f"WLASL{subset}_135-{split}.hdf5"
     )
-    processed_path = os.path.join(
-        cfg.PATHS.processed_data_dir, f"WLASL{subset}_135-{split}.hdf5"
-    )
+    processed_path = os.path.join(cfg.PATHS.processed_data_dir, f"WLASL{subset}_135-{split}.hdf5")
 
     print("\n" + "=" * 80)
     print(f"2. {split} HDF5 文件结构对比")
@@ -154,9 +150,7 @@ def compare_sample_data(split: str, num_samples: int = 5):
     official_path = os.path.join(
         cfg.PATHS.project_root, f"WLASL{subset}", f"WLASL{subset}_135-{split}.hdf5"
     )
-    processed_path = os.path.join(
-        cfg.PATHS.processed_data_dir, f"WLASL{subset}_135-{split}.hdf5"
-    )
+    processed_path = os.path.join(cfg.PATHS.processed_data_dir, f"WLASL{subset}_135-{split}.hdf5")
 
     print("\n" + "=" * 80)
     print(f"3. {split} 样本数据详细对比 (前 {num_samples} 个共同视频)")
@@ -178,9 +172,7 @@ def compare_sample_data(split: str, num_samples: int = 5):
             p_video_to_group[video_id] = key
 
         # 找出共同视频
-        common_videos = sorted(
-            set(o_video_to_group.keys()) & set(p_video_to_group.keys())
-        )
+        common_videos = sorted(set(o_video_to_group.keys()) & set(p_video_to_group.keys()))
 
         for i, video_id in enumerate(common_videos[:num_samples]):
             o_key = o_video_to_group[video_id]
@@ -204,9 +196,7 @@ def compare_sample_data(split: str, num_samples: int = 5):
             p_data = np.array(p_grp["data"])
 
             shape_match = "[OK]" if o_data.shape == p_data.shape else "[FAIL]"
-            print(
-                f"  data shape: 官方={o_data.shape}, 预处理={p_data.shape} {shape_match}"
-            )
+            print(f"  data shape: 官方={o_data.shape}, 预处理={p_data.shape} {shape_match}")
             print(f"  data dtype: 官方={o_data.dtype}, 预处理={p_data.dtype}")
 
             # 数据统计
@@ -231,9 +221,7 @@ def compare_data_statistics(split: str):
     official_path = os.path.join(
         cfg.PATHS.project_root, f"WLASL{subset}", f"WLASL{subset}_135-{split}.hdf5"
     )
-    processed_path = os.path.join(
-        cfg.PATHS.processed_data_dir, f"WLASL{subset}_135-{split}.hdf5"
-    )
+    processed_path = os.path.join(cfg.PATHS.processed_data_dir, f"WLASL{subset}_135-{split}.hdf5")
 
     print("\n" + "=" * 80)
     print(f"4. {split} 整体数据统计对比")
@@ -257,7 +245,7 @@ def compare_data_statistics(split: str):
             p_frame_counts.append(data.shape[0])
 
         # 帧数统计
-        print(f"\n帧数统计:")
+        print("\n帧数统计:")
         print(
             f"  官方 - 总帧数: {sum(o_frame_counts)}, 平均: {np.mean(o_frame_counts):.1f}, 最小: {min(o_frame_counts)}, 最大: {max(o_frame_counts)}"
         )
@@ -269,7 +257,7 @@ def compare_data_statistics(split: str):
         o_concat = np.concatenate([d.flatten() for d in o_all_data])
         p_concat = np.concatenate([d.flatten() for d in p_all_data])
 
-        print(f"\n数据值统计:")
+        print("\n数据值统计:")
         print(
             f"  官方 - mean: {o_concat.mean():.6f}, std: {o_concat.std():.6f}, min: {o_concat.min():.6f}, max: {o_concat.max():.6f}"
         )
@@ -280,7 +268,7 @@ def compare_data_statistics(split: str):
         # 零值统计（可能反映关键点检测失败）
         o_zero_ratio = (o_concat == 0).sum() / len(o_concat)
         p_zero_ratio = (p_concat == 0).sum() / len(p_concat)
-        print(f"\n零值比例:")
+        print("\n零值比例:")
         print(f"  官方: {o_zero_ratio:.4%}")
         print(f"  预处理: {p_zero_ratio:.4%}")
 
@@ -292,12 +280,10 @@ def compare_first_frame_keypoints(split: str, video_idx: int = 0):
     official_path = os.path.join(
         cfg.PATHS.project_root, f"WLASL{subset}", f"WLASL{subset}_135-{split}.hdf5"
     )
-    processed_path = os.path.join(
-        cfg.PATHS.processed_data_dir, f"WLASL{subset}_135-{split}.hdf5"
-    )
+    processed_path = os.path.join(cfg.PATHS.processed_data_dir, f"WLASL{subset}_135-{split}.hdf5")
 
     print("\n" + "=" * 80)
-    print(f"5. 关键点数据详细对比 (第一个共同视频的第一帧)")
+    print("5. 关键点数据详细对比 (第一个共同视频的第一帧)")
     print("=" * 80)
 
     with h5py.File(official_path, "r") as f_o, h5py.File(processed_path, "r") as f_p:
@@ -315,9 +301,7 @@ def compare_first_frame_keypoints(split: str, video_idx: int = 0):
             video_id = video_name.split("/")[-1].replace(".mp4", "")
             p_video_to_group[video_id] = key
 
-        common_videos = sorted(
-            set(o_video_to_group.keys()) & set(p_video_to_group.keys())
-        )
+        common_videos = sorted(set(o_video_to_group.keys()) & set(p_video_to_group.keys()))
         video_id = common_videos[video_idx]
 
         o_key = o_video_to_group[video_id]
@@ -334,7 +318,7 @@ def compare_first_frame_keypoints(split: str, video_idx: int = 0):
             o_frame = o_data[0]  # (2, 135)
             p_frame = p_data[0]  # (2, 135)
 
-            print(f"\n第一帧关键点对比 (X 坐标, 前10个关键点):")
+            print("\n第一帧关键点对比 (X 坐标, 前10个关键点):")
             print(f"{'关键点':<8} {'官方X':<12} {'预处理X':<12} {'差值':<12}")
             print("-" * 44)
             for i in range(10):
@@ -343,7 +327,7 @@ def compare_first_frame_keypoints(split: str, video_idx: int = 0):
                 diff = abs(o_x - p_x)
                 print(f"{i:<8} {o_x:<12.6f} {p_x:<12.6f} {diff:<12.6f}")
 
-            print(f"\n第一帧关键点对比 (Y 坐标, 前10个关键点):")
+            print("\n第一帧关键点对比 (Y 坐标, 前10个关键点):")
             print(f"{'关键点':<8} {'官方Y':<12} {'预处理Y':<12} {'差值':<12}")
             print("-" * 44)
             for i in range(10):

@@ -1,7 +1,6 @@
 import sys
 import os
 import io
-import json
 import time
 from collections import deque
 from typing import Deque, Tuple, Dict, Any
@@ -12,46 +11,27 @@ import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw, ImageFont
 
-# 解决 Windows 终端编码与颜色支持问题
-if sys.platform == "win32":
+
+def _configure_windows_console() -> None:
+    if sys.platform != "win32":
+        return
+
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
     os.system("")
 
+
 # 确保能够以模块方式导入 src
-sys.path.append(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import src.config as cfg
+from src.core.labels import load_id_to_label_map_compat
 from src.model.model_lstm import get_model
-from src.model.dataloader import preprocess_keypoints, load_feature_stats
+from src.model.dataloader import (
+    preprocess_keypoints,
+    load_feature_stats,
+)
 from src.data_process.preprocess_wlasl import KeypointExtractor, PreprocessHelper
-
-
-def load_label_map_inverse() -> dict:
-    """读取并反转标签映射，返回 {id: label} 字典。"""
-    with open(cfg.PATHS.label_map_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    if "id_to_label" in data:
-        mapping = data["id_to_label"]
-    elif "label_to_id" in data:
-        mapping = data["label_to_id"]
-    else:
-        mapping = data
-
-    if not mapping:
-        return {}
-
-    k, v = next(iter(mapping.items()))
-    if str(k).isdigit():
-        return {int(key): val for key, val in mapping.items()}
-
-    if isinstance(v, int) or (isinstance(v, str) and v.isdigit()):
-        return {int(val): key for key, val in mapping.items()}
-
-    return {}
 
 
 def load_chinese_font(size: int):
@@ -104,9 +84,7 @@ def draw_modern_ui(
         outline=(255, 255, 255, 30),
         width=1,
     )
-    draw.text(
-        (fps_x + 12, fps_y + 6), fps_text, font=font_small, fill=(220, 220, 220, 255)
-    )
+    draw.text((fps_x + 12, fps_y + 6), fps_text, font=font_small, fill=(220, 220, 220, 255))
 
     # ==========================
     # 2. 交互按钮区域 (右上角)
@@ -507,9 +485,7 @@ def prepare_sequence(
     # 1. 应用几何归一化 (PreprocessHelper)
     # 返回: (T, C, V), valid_len, mask, quality
     # 这包括插值、平滑、肩轴对齐、尺度归一化、速度/加速度特征提取、填充/截断
-    processed_data, valid_len, processed_mask, _ = helper.process_video_sequence(
-        raw_data, raw_mask
-    )
+    processed_data, valid_len, processed_mask, _ = helper.process_video_sequence(raw_data, raw_mask)
 
     # 2. 应用标准化和张量转换 (preprocess_keypoints)
     # 这包括 Z-Score 标准化 (如果 stats 存在) 和转 Tensor
@@ -543,7 +519,7 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
     print(f"当前使用的设备: {device}")
 
     # 加载标签映射
-    id_to_label = load_label_map_inverse()
+    id_to_label = load_id_to_label_map_compat(cfg.PATHS.label_map_path)
     if not id_to_label:
         print("警告: 标签映射为空，将直接输出类别 ID。")
 
@@ -654,21 +630,15 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
                 else:
                     # 检查关键点是否有效（至少有一定数量的非零点才认为检测成功）
                     # extract_frame_optimized 已经保证了 hand_landmarks 存在，这里再做一次数量检查
-                    valid_count = (
-                        int(np.sum(valid_mask)) if valid_mask is not None else 0
-                    )
-                    keypoints_valid = (
-                        valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame
-                    )
+                    valid_count = int(np.sum(valid_mask)) if valid_mask is not None else 0
+                    keypoints_valid = valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame
 
                     # 只有检测到有效骨骼点时才更新 buffer
                     if keypoints_valid and keypoints is not None:
                         frame_buffer.append(keypoints)
 
                         # 按间隔进行模型推理以提高帧率
-                        if frame_buffer and (
-                            frame_count % cfg.INFERENCE.inference_interval == 0
-                        ):
+                        if frame_buffer and (frame_count % cfg.INFERENCE.inference_interval == 0):
                             try:
                                 inputs, lengths = prepare_sequence(
                                     frame_buffer, preprocess_helper, stats
@@ -684,7 +654,7 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
                                     int(top_idx.item()), str(int(top_idx.item()))
                                 )
                                 last_result = (pred_label, float(top_prob.item()))
-                            except Exception as e:
+                            except Exception:
                                 # 仅在调试时打印详细错误，避免刷屏
                                 # print(f"推理错误: {e}")
                                 last_result = None
@@ -763,6 +733,7 @@ def parse_args():
 
 
 if __name__ == "__main__":
+    _configure_windows_console()
     args = parse_args()
 
     # 如果指定了视频文件，临时修改 config 中的 camera_index 为视频路径

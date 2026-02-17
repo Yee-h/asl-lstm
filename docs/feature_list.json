@@ -1,0 +1,149 @@
+{
+  "project": "ASL-LSTM 项目完整修复",
+  "version": "1.0.0",
+  "features": [
+    {
+      "id": "T00",
+      "category": "文档基线",
+      "priority": "P0",
+      "status": "completed",
+      "description": "建立 docs 文档基线并恢复单一事实来源",
+      "steps": [
+        "创建 docs 目录和六个核心文档文件",
+        "补齐 Product-Spec 与变更记录",
+        "初始化任务清单与进度日志"
+      ],
+      "test_file_pattern": "N/A",
+      "dependencies": []
+    },
+    {
+      "id": "T01",
+      "category": "阻断修复",
+      "priority": "P0",
+      "status": "completed",
+      "description": "修复 transfer_hdf5_data.py 配置引用错误，恢复 get_data_dir 可用性",
+      "steps": [
+        "替换旧 config 导入方式为 src.config",
+        "统一使用 cfg.PATHS.project_root 进行路径推导",
+        "验证 get_data_dir 调用可正常返回"
+      ],
+      "test_file_pattern": "src/data_process/transfer_hdf5_data.py",
+      "dependencies": [
+        "T00"
+      ]
+    },
+    {
+      "id": "T02",
+      "category": "路径治理",
+      "priority": "P0",
+      "status": "completed",
+      "description": "清除硬编码绝对路径与旧项目名残留",
+      "steps": [
+        "为脚本统一添加 dataset-scale/split/data-root 参数",
+        "默认路径改由 cfg.PATHS.project_root 推导",
+        "完成命令行验证并记录日志"
+      ],
+      "test_file_pattern": "src/test/*.py",
+      "dependencies": [
+        "T01"
+      ]
+    },
+    {
+      "id": "T03",
+      "category": "契约统一",
+      "priority": "P0",
+      "status": "completed",
+      "description": "统一标签映射契约并收敛解析实现",
+      "steps": [
+        "修正 maplabels 生成逻辑",
+        "抽出统一解析函数供训练评估推理复用",
+        "新增契约测试覆盖合法与非法输入"
+      ],
+      "test_file_pattern": "src/test/test_label_map_contract.py",
+      "dependencies": [
+        "T02"
+      ]
+    },
+    {
+      "id": "T04",
+      "category": "公共模块解耦",
+      "priority": "P0",
+      "status": "completed",
+      "description": "抽离 src/core 公共模块，统一路径、标签与 HDF5 契约逻辑",
+      "steps": [
+        "新增 src/core/paths.py",
+        "新增 src/core/labels.py",
+        "新增 src/core/hdf5_schema.py",
+        "替换调用方重复实现并补充核心测试"
+      ],
+      "test_file_pattern": "src/test/test_core_modules.py",
+      "dependencies": [
+        "T03"
+      ]
+    },
+    {
+      "id": "T05",
+      "category": "文档对齐",
+      "priority": "P1",
+      "status": "completed",
+      "description": "确保 README 与 docs 文档描述和代码实现一致",
+      "steps": [
+        "清理 README 失效路径",
+        "补全 API 契约与参数文档",
+        "更新架构文档与变更记录"
+      ],
+      "test_file_pattern": "docs/*.md",
+      "dependencies": [
+        "T04"
+      ]
+    },
+    {
+      "id": "T06",
+      "category": "静态检查",
+      "priority": "P1",
+      "status": "completed",
+      "description": "接入 ruff 并清零静态检查告警",
+      "steps": [
+        "在 pyproject.toml 增加 ruff 配置",
+        "执行 uv sync 与 ruff check",
+        "修复全部违规项并纳入门禁"
+      ],
+      "test_file_pattern": "src/**/*.py",
+      "dependencies": [
+        "T05"
+      ]
+    },
+    {
+      "id": "T07",
+      "category": "集成测试",
+      "priority": "P1",
+      "status": "completed",
+      "description": "补齐预处理、训练、推理三类 smoke 测试",
+      "steps": [
+        "实现预处理最小样本链路验证",
+        "实现训练最小 epoch 流程验证",
+        "实现无摄像头推理离线序列验证"
+      ],
+      "test_file_pattern": "src/test/test_*_smoke.py",
+      "dependencies": [
+        "T06"
+      ]
+    },
+    {
+      "id": "T08",
+      "category": "验收封版",
+      "priority": "P0",
+      "status": "completed",
+      "description": "完成最终全量验收并输出修复报告",
+      "steps": [
+        "执行 compileall/unittest/ruff 全量门禁",
+        "推进任务状态全部完成",
+        "更新进度日志与变更发布记录"
+      ],
+      "test_file_pattern": "src/test/test_*.py",
+      "dependencies": [
+        "T07"
+      ]
+    }
+  ]
+}
