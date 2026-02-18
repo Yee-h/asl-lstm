@@ -144,6 +144,104 @@
       "dependencies": [
         "T07"
       ]
+    },
+    {
+      "id": "T09",
+      "category": "训练优化",
+      "priority": "P0",
+      "status": "completed",
+      "description": "修复模型自测维度错误并优化训练策略提升泛化表现",
+      "steps": [
+        "修复 model_lstm.py 自测输入维度与配置不一致问题",
+        "增加训练过拟合诊断模式并暴露可控开关",
+        "调整默认训练与增强超参数，降低欠拟合并提升验证稳定性"
+      ],
+      "test_file_pattern": "src/test/test_model_input_contract.py",
+      "dependencies": [
+        "T08"
+      ]
+    },
+    {
+      "id": "T10",
+      "category": "泛化优化",
+      "priority": "P0",
+      "status": "completed",
+      "description": "引入 EMA 评估与保存路径，降低过拟合并提升验证稳定性",
+      "steps": [
+        "新增 ModelEMA 工具并补充单元测试",
+        "训练入口接入 EMA 策略并支持 overfit-debug 下自动关闭",
+        "补充文档与门禁验证，确保训练与测试链路稳定"
+      ],
+      "test_file_pattern": "src/test/test_training_utils.py",
+      "dependencies": [
+        "T09"
+      ]
+    },
+    {
+      "id": "T11",
+      "category": "评估增强",
+      "priority": "P0",
+      "status": "completed",
+      "description": "新增 checkpoint 平均能力并支持指定模型评估，提升测试集稳定性",
+      "steps": [
+        "增加 checkpoint 权重平均工具模块与命令行脚本",
+        "评估入口支持 --model-path 与 --no-tta 参数",
+        "验证平均模型相对 best_model 的测试集指标提升"
+      ],
+      "test_file_pattern": "src/test/test_checkpoint_utils.py",
+      "dependencies": [
+        "T10"
+      ]
+    },
+    {
+      "id": "T12",
+      "category": "回归止损",
+      "priority": "P0",
+      "status": "completed",
+      "description": "修复验证指标退化并引入跨轮次冠军晋升门禁，确保 best_model 不回退",
+      "steps": [
+        "关闭默认验证 TTA，恢复稳定可比的验证口径",
+        "训练流程新增冠军晋升判定，候选不超过历史冠军则禁止覆盖 best_model",
+        "利用 checkpoint 平均回收高质量模型并提升当前 best_model 测试精度"
+      ],
+      "test_file_pattern": "src/test/test_training_utils.py",
+      "dependencies": [
+        "T11"
+      ]
+    },
+    {
+      "id": "T13",
+      "category": "结构调优",
+      "priority": "P0",
+      "status": "completed",
+      "description": "移除冠军晋升门禁并优化模型结构与训练参数以提升准确度上限",
+      "steps": [
+        "删除跨轮次冠军晋升逻辑，恢复单次训练 best_model 选择",
+        "为 BiLSTM+Attention 增加输入投影与 LayerNorm-MLP 分类头",
+        "重新调优模型与训练超参数并通过全量门禁"
+      ],
+      "test_file_pattern": "src/test/test_model_input_contract.py",
+      "dependencies": [
+        "T12"
+      ]
+    },
+    {
+      "id": "T14",
+      "category": "回归恢复",
+      "priority": "P0",
+      "status": "in_progress",
+      "description": "收敛模型容量与训练采样策略，修复结构激进改动导致的精度回退风险",
+      "steps": [
+        "已完成：新增参数预算回归测试，约束小样本场景模型规模上限（<=1,300,000）",
+        "已完成：回退到简化分类头（Attention + Dropout + Linear），并保留容量收敛超参数",
+        "已完成：完成 30 epoch A/B 快速复核，测试准确率由 44.57% 提升至 48.84%",
+        "待执行：运行长训并产出新的 best_model.pth（用户执行）",
+        "待执行：对长训 checkpoint 做区间平均并与 best_model 进行测试对比"
+      ],
+      "test_file_pattern": "src/test/test_model_input_contract.py",
+      "dependencies": [
+        "T13"
+      ]
     }
   ]
 }

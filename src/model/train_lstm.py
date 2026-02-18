@@ -4,6 +4,7 @@ import torch.optim as optim
 import sys
 import os
 import io
+import argparse
 import importlib.util
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -28,10 +29,65 @@ import src.config as cfg
 from src.model.model_lstm import get_model
 from src.model.dataloader import get_dataloaders
 from src.model.validate_lstm import validate
-from src.model.training_utils import EarlyStopping, set_global_seed
+from src.model.training_utils import EarlyStopping, ModelEMA, set_global_seed
 
 
-def train():
+def build_training_profile(overfit_debug: bool = False) -> dict[str, float | bool]:
+    """构建训练策略配置，可按需切换到过拟合诊断模式。"""
+    profile: dict[str, float | bool] = {
+        "label_smoothing": float(cfg.MODEL.label_smoothing),
+        "weight_decay": float(cfg.TRAINING.weight_decay),
+        "train_augment": True,
+        "use_weighted_sampler": bool(cfg.TRAINING.use_weighted_sampler),
+        "disable_dropout": False,
+        "use_val_scheduler": True,
+        "use_early_stopping": bool(cfg.TRAINING.early_stopping_enabled),
+        "use_ema": bool(cfg.TRAINING.use_ema),
+        "ema_decay": float(cfg.TRAINING.ema_decay),
+        "ema_start_epoch": int(cfg.TRAINING.ema_start_epoch),
+        "use_eval_tta_hflip": bool(cfg.TRAINING.eval_use_tta_hflip),
+    }
+
+    if overfit_debug:
+        profile.update(
+            {
+                "label_smoothing": 0.0,
+                "weight_decay": 0.0,
+                "train_augment": False,
+                "use_weighted_sampler": False,
+                "disable_dropout": True,
+                "use_val_scheduler": False,
+                "use_early_stopping": False,
+                "use_ema": False,
+                "use_eval_tta_hflip": False,
+            }
+        )
+
+    return profile
+
+
+def _disable_model_dropout(model: nn.Module) -> None:
+    """关闭模型中的 Dropout，用于过拟合可达性诊断。"""
+    for module in model.modules():
+        if isinstance(module, nn.Dropout):
+            module.p = 0.0
+
+    lstm = getattr(model, "lstm", None)
+    if lstm is not None and hasattr(lstm, "dropout"):
+        lstm.dropout = 0.0
+
+
+def _evaluate_no_tta_val_acc(
+    model: nn.Module,
+    val_loader,
+    criterion: nn.Module,
+    device: torch.device,
+) -> tuple[float, float]:
+    """统一使用无 TTA 指标作为跨轮次模型晋升基准。"""
+    return validate(model, val_loader, criterion, device, use_tta_hflip=False)
+
+
+def train(overfit_debug: bool = False):
     """
     模型训练主函数。
     """
@@ -49,40 +105,67 @@ def train():
     )
     print(f"当前使用的设备: {device}")
 
+    training_profile = build_training_profile(overfit_debug=overfit_debug)
+    if overfit_debug:
+        print("[诊断模式] 已启用 overfit-debug：关闭增强、采样重权、Dropout、正则与标签平滑")
+    print(
+        "训练策略: "
+        f"augment={training_profile['train_augment']}, "
+        f"weighted_sampler={training_profile['use_weighted_sampler']}, "
+        f"label_smoothing={training_profile['label_smoothing']}, "
+        f"weight_decay={training_profile['weight_decay']}, "
+        f"val_scheduler={training_profile['use_val_scheduler']}, "
+        f"early_stopping={training_profile['use_early_stopping']}, "
+        f"ema={training_profile['use_ema']}, "
+        f"eval_tta={training_profile['use_eval_tta_hflip']}"
+    )
+
     # --- 加载数据集 ---
     print("正在加载数据集...")
-    train_loader, val_loader, test_loader = get_dataloaders()
+    train_loader, val_loader, test_loader = get_dataloaders(
+        train_augment=bool(training_profile["train_augment"]),
+        use_weighted_sampler=bool(training_profile["use_weighted_sampler"]),
+    )
     print("数据集加载完成。")
 
     # --- 初始化模型 ---
     # 根据配置选择 BiLSTM 或 BiLSTM+Attention 模型
     # 并将模型参数迁移到指定设备 (CPU/GPU)
     model = get_model(use_attention=cfg.MODEL.use_attention).to(device)
+    if bool(training_profile["disable_dropout"]):
+        _disable_model_dropout(model)
     model_type = "BiLSTM+Attention" if cfg.MODEL.use_attention else "BiLSTM"
     print(f"模型架构: {model_type}")
     print(f"模型参数总量: {sum(p.numel() for p in model.parameters()):,}")
 
     # --- 定义损失函数和优化器 ---
     # CrossEntropyLoss 适用于多分类任务
-    criterion = nn.CrossEntropyLoss(label_smoothing=cfg.MODEL.label_smoothing)
+    criterion = nn.CrossEntropyLoss(label_smoothing=float(training_profile["label_smoothing"]))
     # 使用 Adam 优化器，学习率从配置文件获取 (加入 L2 正则化以减轻过拟合)
     optimizer = optim.Adam(
         model.parameters(),
         lr=cfg.TRAINING.learning_rate,
-        weight_decay=cfg.TRAINING.weight_decay,
+        weight_decay=float(training_profile["weight_decay"]),
     )
+
+    ema_tracker = None
+    if bool(training_profile["use_ema"]):
+        ema_tracker = ModelEMA(model, decay=float(training_profile["ema_decay"]))
+    ema_start_epoch = max(1, int(training_profile["ema_start_epoch"]))
 
     # 学习率调度器：当验证集 Loss 连续 patience 轮不下降时，自动将学习率乘以 factor
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode="min",  # 监控指标为 Loss，越小越好
-        factor=cfg.TRAINING.scheduler_factor,  # 学习率衰减因子
-        patience=cfg.TRAINING.scheduler_patience,  # 容忍多少轮 Loss 不下降
-        min_lr=cfg.TRAINING.scheduler_min_lr,  # 最小学习率
-    )
+    scheduler = None
+    if bool(training_profile["use_val_scheduler"]):
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="min",  # 监控指标为 Loss，越小越好
+            factor=cfg.TRAINING.scheduler_factor,  # 学习率衰减因子
+            patience=cfg.TRAINING.scheduler_patience,  # 容忍多少轮 Loss 不下降
+            min_lr=cfg.TRAINING.scheduler_min_lr,  # 最小学习率
+        )
 
     early_stopper = None
-    if cfg.TRAINING.early_stopping_enabled:
+    if bool(training_profile["use_early_stopping"]):
         metric_mode = "max" if cfg.TRAINING.early_stopping_metric == "val_acc" else "min"
         early_stopper = EarlyStopping(
             mode=metric_mode,
@@ -90,8 +173,8 @@ def train():
             min_delta=cfg.TRAINING.early_stopping_min_delta,
         )
 
-    # --- 训练循环 ---
-    best_acc = 0.0  # 记录验证集上的最高准确率
+    best_model_path = os.path.join(cfg.PATHS.model_save_dir, "best_model.pth")
+    best_acc = -1.0
 
     # 记录训练过程中的 Loss 和 Accuracy
     train_losses = []
@@ -146,6 +229,8 @@ def train():
                         model.parameters(), cfg.TRAINING.grad_clip_max_norm
                     )
                 optimizer.step()  # 更新参数
+                if ema_tracker is not None and (epoch + 1) >= ema_start_epoch:
+                    ema_tracker.update(model)
                 optimizer.zero_grad(set_to_none=True)  # 清空梯度
 
             # --- 统计训练指标 ---
@@ -174,20 +259,34 @@ def train():
 
         # --- 验证环节 ---
         # 每一轮训练结束后，在验证集上评估模型性能
-        val_loss, val_acc = validate(model, val_loader, criterion, device)
+        eval_model = model
+        if ema_tracker is not None and (epoch + 1) >= ema_start_epoch:
+            eval_model = ema_tracker.module
+
+        val_loss, val_acc = validate(
+            eval_model,
+            val_loader,
+            criterion,
+            device,
+            use_tta_hflip=bool(training_profile["use_eval_tta_hflip"]),
+        )
+
+        selection_acc = val_acc
+        if bool(training_profile["use_eval_tta_hflip"]):
+            _, selection_acc = _evaluate_no_tta_val_acc(eval_model, val_loader, criterion, device)
 
         # 打印本轮训练结果
         print(f"Epoch [{epoch + 1}/{cfg.TRAINING.num_epochs}] 结果:")
         print(f"  训练集 Loss: {epoch_loss:.4f} | 准确率: {train_acc:.2f}%")
         print(f"  验证集 Loss: {val_loss:.4f} | 准确率: {val_acc:.2f}%")
+        if bool(training_profile["use_eval_tta_hflip"]):
+            print(f"  验证集准确率(无TTA门禁): {selection_acc:.2f}%")
 
-        # --- 保存最佳模型 ---
-        # 如果当前轮次的验证集准确率是最高的，则保存模型权重
-        if val_acc > best_acc:
-            best_acc = val_acc
-            save_path = os.path.join(cfg.PATHS.model_save_dir, "best_model.pth")
-            torch.save(model.state_dict(), save_path)
-            print(f"  检测到更好的模型，已保存至 {save_path}")
+        # --- 保存当前训练最优模型 ---
+        if selection_acc > best_acc:
+            best_acc = selection_acc
+            torch.save(eval_model.state_dict(), best_model_path)
+            print(f"  检测到更好的模型，已保存至 {best_model_path}")
 
         # --- 每五轮保存一次模型 ---
         if (epoch + 1) % cfg.TRAINING.save_every_n_epochs == 0:
@@ -226,13 +325,14 @@ def train():
         print("  训练曲线已更新")
 
         # --- 更新学习率 (基于验证集 Loss) ---
-        scheduler.step(val_loss)
+        if scheduler is not None:
+            scheduler.step(val_loss)
         current_lr = optimizer.param_groups[0]["lr"]
         print(f"  当前学习率: {current_lr:.6f}")
 
         if early_stopper is not None:
             monitored_value = (
-                val_acc if cfg.TRAINING.early_stopping_metric == "val_acc" else val_loss
+                selection_acc if cfg.TRAINING.early_stopping_metric == "val_acc" else val_loss
             )
             if early_stopper.step(monitored_value):
                 print(
@@ -243,6 +343,17 @@ def train():
     print("训练结束。")
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="训练 BiLSTM / BiLSTM+Attention 模型")
+    parser.add_argument(
+        "--overfit-debug",
+        action="store_true",
+        help="启用过拟合诊断模式（关闭增强与正则，验证模型可拟合能力）",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
     _configure_windows_console()
-    train()
+    args = parse_args()
+    train(overfit_debug=args.overfit_debug)

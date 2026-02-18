@@ -14,10 +14,41 @@
 ### 2.2 训练入口
 - 脚本: `src/model/train_lstm.py`
 - 作用: 基于 HDF5 数据训练 LSTM 模型。
+- 默认策略: 启用 EMA（指数滑动平均）进行验证评估与 `best_model.pth` 保存。
+- 模型结构（当前回归基线）: BiLSTM + Attention + Dropout + Linear 分类头。
+- 常用参数:
+  - `--overfit-debug`: 启用过拟合诊断模式（关闭训练增强、类别重采样、Dropout、标签平滑、权重衰减、验证集调度与早停）。
 
 ### 2.3 评估入口
 - 脚本: `src/model/evaluate_lstm.py`
 - 作用: 加载最佳模型并输出测试集评估指标。
+- 常用参数:
+  - `--model-path`: 指定待评估 checkpoint 路径。
+  - `--no-tta`: 关闭水平翻转 TTA（当前默认评估口径为无 TTA，可确保跨轮次可比）。
+
+### 2.3.1 Checkpoint 平均入口
+- 脚本: `src/model/average_checkpoints.py`
+- 作用: 对多个 epoch 的 checkpoint 做参数平均并导出新模型。
+- 常用参数:
+  - `--start-epoch` / `--end-epoch`: 参与平均的 epoch 区间。
+  - `--step`: checkpoint 步长（默认 5）。
+  - `--output`: 输出 checkpoint 路径（可选）。
+
+### 2.3.2 长训恢复建议流程（交接）
+- 目标: 在当前回归基线下，验证是否可恢复到历史测试准确率区间（约 63%~67%）。
+- 推荐命令:
+
+```bash
+uv run python src/model/train_lstm.py
+uv run python src/model/evaluate_lstm.py --no-tta --model-path src/checkpoints/best_model.pth
+uv run python src/model/average_checkpoints.py --start-epoch 160 --end-epoch 260
+uv run python src/model/evaluate_lstm.py --no-tta --model-path src/checkpoints/averaged_160_260.pth
+```
+
+- 建议记录并回传:
+  - 最佳 `val_acc` 与对应 epoch。
+  - `best_model` 与 `averaged` 模型的测试集准确率及报告文件路径。
+  - 峰值前后关键训练日志片段。
 
 ### 2.4 实时推理入口
 - 脚本: `src/model/realtime_inference.py`

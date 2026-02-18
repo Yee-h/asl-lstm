@@ -4,6 +4,7 @@ import sys
 import os
 import io
 import time
+import argparse
 from tqdm import tqdm
 
 
@@ -22,9 +23,10 @@ import src.config as cfg
 from src.core.labels import load_id_to_label_map
 from src.model.model_lstm import get_model
 from src.model.dataloader import get_dataloaders
+from src.model.tta import build_hflip_tta_batch
 
 
-def evaluate_model():
+def evaluate_model(use_tta_hflip: bool | None = None, model_path_override: str | None = None):
     """
     在测试数据集上评估保存的模型。
     """
@@ -45,7 +47,7 @@ def evaluate_model():
     print(f"模型架构: {model_type}")
 
     # 4. 加载权重
-    model_path = cfg.PATHS.test_model_path
+    model_path = cfg.PATHS.test_model_path if model_path_override is None else model_path_override
 
     print(f"正在加载模型: {model_path}")
     if os.path.exists(model_path):
@@ -70,6 +72,10 @@ def evaluate_model():
     print("开始评估...")
     start_time = time.time()
 
+    if use_tta_hflip is None:
+        use_tta_hflip = bool(cfg.TRAINING.eval_use_tta_hflip)
+    print(f"评估 TTA: {'开启' if use_tta_hflip else '关闭'}")
+
     with torch.no_grad():
         # 单条覆盖式进度条（评估阶段）
         pbar = tqdm(
@@ -89,6 +95,10 @@ def evaluate_model():
 
             # 前向传播 (传递 lengths 参数)
             outputs = model(inputs, lengths)
+            if use_tta_hflip:
+                flipped_inputs = build_hflip_tta_batch(inputs)
+                flipped_outputs = model(flipped_inputs, lengths)
+                outputs = 0.5 * (outputs + flipped_outputs)
             loss = criterion(outputs, labels)
 
             # 统计指标
@@ -147,7 +157,7 @@ def evaluate_model():
             all_preds,
             target_names=target_names,
             digits=4,
-            zero_division=0,
+            zero_division=0.0,
             output_dict=False,
         )
         print(report)
@@ -184,4 +194,19 @@ def evaluate_model():
 
 if __name__ == "__main__":
     _configure_windows_console()
-    evaluate_model()
+
+    parser = argparse.ArgumentParser(description="评估已训练模型")
+    parser.add_argument(
+        "--no-tta",
+        action="store_true",
+        help="关闭水平翻转 TTA（默认按 config 启用）",
+    )
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        default=None,
+        help="指定待评估模型路径（默认使用 config 中的 best_model）",
+    )
+    args = parser.parse_args()
+
+    evaluate_model(use_tta_hflip=not args.no_tta, model_path_override=args.model_path)

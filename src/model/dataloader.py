@@ -56,8 +56,11 @@ def build_weighted_sampler(
     if weights.size == 0:
         return None
 
-    weight_tensor = torch.as_tensor(weights, dtype=torch.double)
-    return WeightedRandomSampler(weight_tensor, num_samples=len(weight_tensor), replacement=True)
+    return WeightedRandomSampler(
+        weights.tolist(),
+        num_samples=len(weights),
+        replacement=True,
+    )
 
 
 def load_feature_stats(stats_path: str) -> dict | None:
@@ -502,16 +505,29 @@ class CSLDataset(Dataset):
         return transformed, output_mask
 
 
-def get_dataloaders():
+def get_dataloaders(
+    train_augment: bool = True,
+    use_weighted_sampler: bool | None = None,
+):
     """创建并返回训练、验证和测试数据加载器。"""
-    train_dataset = CSLDataset(cfg.PATHS.train_data_path, cfg.PATHS.label_map_path, augment=True)
+    train_dataset = CSLDataset(
+        cfg.PATHS.train_data_path,
+        cfg.PATHS.label_map_path,
+        augment=bool(train_augment),
+    )
     val_dataset = CSLDataset(cfg.PATHS.val_data_path, cfg.PATHS.label_map_path, augment=False)
     test_dataset = CSLDataset(cfg.PATHS.test_data_path, cfg.PATHS.label_map_path, augment=False)
 
     pin_memory = torch.cuda.is_available() and cfg.TRAINING.device == "cuda"
 
+    weighted_sampler_enabled = (
+        cfg.TRAINING.use_weighted_sampler
+        if use_weighted_sampler is None
+        else bool(use_weighted_sampler)
+    )
+
     train_sampler = None
-    if cfg.TRAINING.use_weighted_sampler:
+    if weighted_sampler_enabled:
         train_labels = [sample["label_id"] for sample in train_dataset.data_cache]
         train_sampler = build_weighted_sampler(train_labels, power=cfg.TRAINING.sampler_power)
 

@@ -132,6 +132,51 @@ uv run python src/data_process/preprocess_wlasl.py
 uv run python src/model/train_lstm.py
 ```
 *模型权重将保存在 `src/checkpoints/` 目录。*
+*默认训练已启用 EMA（指数滑动平均）用于验证与 best 模型保存，以提升泛化稳定性。*
+*当前回归基线结构为 BiLSTM + Attention + Dropout + Linear 分类头（用于提升小样本稳定性）。*
+
+过拟合能力诊断（固定 `seed=42` 下排查模型是否可拟合训练集）：
+```bash
+uv run python src/model/train_lstm.py --overfit-debug
+```
+*该模式会临时关闭训练增强、类别重采样、Dropout、标签平滑与权重衰减。*
+*同时会关闭验证集学习率调度与早停，避免诊断过程被验证集波动打断。*
+
+### 3.1 模型评估与 checkpoint 平均
+评估默认 best 模型：
+```bash
+uv run python src/model/evaluate_lstm.py --no-tta --model-path src/checkpoints/best_model.pth
+```
+
+对指定 epoch 区间进行 checkpoint 平均（示例：240~260）：
+```bash
+uv run python src/model/average_checkpoints.py --start-epoch 240 --end-epoch 260
+uv run python src/model/evaluate_lstm.py --no-tta --model-path src/checkpoints/averaged_240_260.pth
+```
+*平均模型可在训练后期降低单点 checkpoint 波动，提升测试稳定性。*
+*默认评估口径使用无 TTA 指标，便于跨轮次可比。*
+
+### 3.2 长训交接（当前推荐）
+为恢复到历史测试精度区间（约 63%~67%），建议按以下顺序执行：
+
+```bash
+# 1) 训练前清空历史 checkpoint（你当前习惯）
+# 2) 执行长训（默认使用 src/config.py 当前参数）
+uv run python src/model/train_lstm.py
+
+# 3) 评估单点 best_model
+uv run python src/model/evaluate_lstm.py --no-tta --model-path src/checkpoints/best_model.pth
+
+# 4) 对后期 checkpoint 做区间平均（示例区间，可按实际最佳段调整）
+uv run python src/model/average_checkpoints.py --start-epoch 160 --end-epoch 260
+uv run python src/model/evaluate_lstm.py --no-tta --model-path src/checkpoints/averaged_160_260.pth
+```
+
+建议回传以下信息，便于后续 AI 继续优化：
+- 早停轮次（若触发）、最佳验证准确率及对应 epoch。
+- `best_model.pth` 的测试准确率与评估报告路径。
+- `averaged_*.pth` 的测试准确率与评估报告路径。
+- 关键训练日志片段（峰值前后约 20~40 轮）。
 
 ### 4. 实时推理 (Pipeline B)
 启动摄像头进行实时识别：

@@ -5,9 +5,7 @@ import sys
 import os
 
 # Add src to path if needed (though running as module is preferred)
-sys.path.append(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import src.config as cfg
 
 
@@ -114,10 +112,7 @@ class BiLSTMAttention(nn.Module):
         # 注意力层
         self.attention = Attention(lstm_output_dim, attention_dim)
 
-        # Dropout 层
         self.dropout_fc = nn.Dropout(dropout)
-
-        # 输出层：将注意力上下文向量映射到类别空间
         self.fc = nn.Linear(lstm_output_dim, num_classes)
 
     def forward(self, x, lengths):
@@ -149,15 +144,15 @@ class BiLSTMAttention(nn.Module):
 
         # 4. 创建掩码：标记有效位置 (非填充)
         # mask: (batch, seq_len), True 表示有效位置
-        mask = torch.arange(seq_len, device=x.device).unsqueeze(0) < lengths.unsqueeze(
-            1
-        ).to(x.device)
+        mask = torch.arange(seq_len, device=x.device).unsqueeze(0) < lengths.unsqueeze(1).to(
+            x.device
+        )
 
         # 5. Attention 计算
         # context: (batch, hidden_dim)
         context, attention_weights = self.attention(lstm_output, mask)
 
-        # 6. Dropout & FC
+        # 6. 分类
         out = self.dropout_fc(context)
         out = self.fc(out)
 
@@ -187,9 +182,9 @@ class BiLSTMAttention(nn.Module):
             packed_out, batch_first=True, total_length=seq_len
         )
 
-        mask = torch.arange(seq_len, device=x.device).unsqueeze(0) < lengths.unsqueeze(
-            1
-        ).to(x.device)
+        mask = torch.arange(seq_len, device=x.device).unsqueeze(0) < lengths.unsqueeze(1).to(
+            x.device
+        )
 
         context, attention_weights = self.attention(lstm_output, mask)
 
@@ -252,6 +247,19 @@ class BiLSTM(nn.Module):
         return out
 
 
+def build_dummy_batch_for_smoke(
+    batch_size: int = 32,
+    seq_len: int = 110,
+    input_size: int | None = None,
+):
+    """构造与当前配置一致的随机输入，用于模型前向自测。"""
+    feature_dim = cfg.SEQUENCE.input_size if input_size is None else int(input_size)
+    seq_len = max(1, int(seq_len))
+    dummy_input = torch.randn(batch_size, seq_len, feature_dim)
+    dummy_lengths = torch.randint(1, seq_len + 1, (batch_size,))
+    return dummy_input, dummy_lengths
+
+
 def get_model(use_attention=cfg.MODEL.use_attention):
     """
     根据配置返回相应的模型实例。
@@ -278,13 +286,8 @@ if __name__ == "__main__":
     print(model)
     print(f"\n模型参数总量: {sum(p.numel() for p in model.parameters()):,}")
 
-    # 模拟输入
-    batch_size = 32
-    seq_len = 110
-    input_size = 270
-
-    dummy_input = torch.randn(batch_size, seq_len, input_size)
-    dummy_lengths = torch.randint(30, seq_len, (batch_size,))
+    # 模拟输入（维度严格对齐 cfg.SEQUENCE.input_size）
+    dummy_input, dummy_lengths = build_dummy_batch_for_smoke()
 
     # 前向传播
     output = model(dummy_input, dummy_lengths)

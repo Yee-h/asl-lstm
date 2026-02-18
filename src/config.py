@@ -254,6 +254,14 @@ class TrainingConfig:
     sampler_power: float
     # DataLoader worker 数
     dataloader_num_workers: int
+    # 是否启用参数指数滑动平均（EMA）
+    use_ema: bool
+    # EMA 衰减系数
+    ema_decay: float
+    # EMA 开始生效的 epoch（1-based）
+    ema_start_epoch: int
+    # 验证阶段是否启用水平翻转 TTA
+    eval_use_tta_hflip: bool
 
 
 @dataclass(frozen=True)
@@ -331,9 +339,7 @@ PATHS = PathsConfig(
         _PROJECT_ROOT, "src", "checkpoints", "best_model.pth"
     ),  # 默认评估模型路径
     raw_data_dir=os.path.join(_PROJECT_ROOT, "dataset", "raw"),  # 原始数据目录
-    videoid_word_dir=os.path.join(
-        _PROJECT_ROOT, "dataset", "videoId_word"
-    ),  # videoId_word 目录
+    videoid_word_dir=os.path.join(_PROJECT_ROOT, "dataset", "videoId_word"),  # videoId_word 目录
     default_json_path=os.path.join(
         _PROJECT_ROOT, "dataset", "raw", "WLASL_v0.3.json"
     ),  # 默认元数据 JSON
@@ -343,9 +349,7 @@ PATHS = PathsConfig(
     default_video_dir=os.path.join(
         _PROJECT_ROOT, "dataset", "raw", f"WLASL{_DATASET_SCALE}"
     ),  # 默认视频目录
-    default_output_dir=os.path.join(
-        _PROJECT_ROOT, "dataset", "processed"
-    ),  # 默认输出根目录
+    default_output_dir=os.path.join(_PROJECT_ROOT, "dataset", "processed"),  # 默认输出根目录
     default_output_prefix="WLASL",  # 默认文件名前缀
     log_dir=os.path.join(_PROJECT_ROOT, "logs"),  # 日志目录
 )
@@ -379,12 +383,8 @@ PREPROCESS = PreprocessConfig(
     ),  # 训练统计量路径
     standardize_eps=1e-6,  # 标准化稳定项
     subset_json_map={
-        100: os.path.join(
-            PATHS.raw_data_dir, "WLASL100", "nslt_100.json"
-        ),  # WLASL100 子集 JSON
-        300: os.path.join(
-            PATHS.raw_data_dir, "WLASL300", "nslt_300.json"
-        ),  # WLASL300 子集 JSON
+        100: os.path.join(PATHS.raw_data_dir, "WLASL100", "nslt_100.json"),  # WLASL100 子集 JSON
+        300: os.path.join(PATHS.raw_data_dir, "WLASL300", "nslt_300.json"),  # WLASL300 子集 JSON
         1000: os.path.join(
             PATHS.raw_data_dir, "WLASL1000", "nslt_1000.json"
         ),  # WLASL1000 子集 JSON
@@ -422,38 +422,38 @@ MEDIAPIPE = MediapipeConfig(
 
 
 MODEL = ModelConfig(
-    hidden_size=128,  # LSTM 隐藏维度
+    hidden_size=128,  # LSTM 隐藏维度（回归到小样本更稳的容量）
     num_layers=2,  # LSTM 层数
     bidirectional=True,  # 双向 LSTM
-    dropout=0.35,  # Dropout（略降以配合新策略）
-    label_smoothing=0.05,  # 标签平滑
+    dropout=0.35,  # Dropout
+    label_smoothing=0.03,  # 标签平滑
     use_attention=True,  # 使用注意力
     attention_dim=32,  # 注意力维度
 )
 
 
 AUGMENTATION = AugmentationConfig(
-    rotation_range=20.0,  # 随机旋转角度范围
-    scale_min=0.85,  # 缩放下限
-    scale_max=1.15,  # 缩放上限
-    translate=0.12,  # 平移幅度
-    noise_std=0.004,  # 噪声强度
-    hflip_prob=0.30,  # 水平翻转概率
+    rotation_range=18.0,  # 随机旋转角度范围
+    scale_min=0.88,  # 缩放下限
+    scale_max=1.12,  # 缩放上限
+    translate=0.10,  # 平移幅度
+    noise_std=0.0030,  # 噪声强度
+    hflip_prob=0.25,  # 水平翻转概率
     hflip_swap_lr=True,  # 翻转后交换左右语义
     hflip_zero_centered=True,  # 零中心翻转策略
-    time_warp_prob=0.20,  # 时间扭曲概率
+    time_warp_prob=0.16,  # 时间扭曲概率
     time_warp_min=0.90,  # 时间扭曲下限
     time_warp_max=1.10,  # 时间扭曲上限
-    frame_dropout_prob=0.15,  # 丢帧概率
-    frame_dropout_max_ratio=0.10,  # 最大丢帧比例
+    frame_dropout_prob=0.10,  # 丢帧概率
+    frame_dropout_max_ratio=0.08,  # 最大丢帧比例
 )
 
 
 TRAINING = TrainingConfig(
     batch_size=4,  # 单步 batch
-    learning_rate=1e-3,  # 初始学习率
-    weight_decay=1e-3,  # L2 正则
-    num_epochs=500,  # 最大轮数
+    learning_rate=8e-4,  # 初始学习率
+    weight_decay=4e-4,  # L2 正则
+    num_epochs=600,  # 最大轮数
     device="cuda",  # 期望设备
     seed=42,  # 随机种子
     deterministic=True,  # 启用确定性模式，便于复现实验
@@ -462,16 +462,20 @@ TRAINING = TrainingConfig(
     save_every_n_epochs=5,  # 定期保存间隔
     grad_clip_max_norm=1.0,  # 梯度裁剪
     grad_accum_steps=4,  # 梯度累积步数
-    scheduler_factor=0.5,  # 学习率衰减比例
-    scheduler_patience=10,  # 学习率调度耐心
-    scheduler_min_lr=1e-6,  # 最小学习率
+    scheduler_factor=0.6,  # 学习率衰减比例
+    scheduler_patience=12,  # 学习率调度耐心
+    scheduler_min_lr=3e-6,  # 最小学习率
     early_stopping_enabled=True,  # 启用早停
-    early_stopping_patience=30,  # 早停耐心
+    early_stopping_patience=150,  # 早停耐心
     early_stopping_metric="val_acc",  # 早停监控指标
     early_stopping_min_delta=0.0,  # 最小改进阈值
-    use_weighted_sampler=True,  # 启用类别均衡采样
-    sampler_power=1.0,  # 采样权重指数
+    use_weighted_sampler=False,  # 默认关闭类别均衡采样，降低训练分布抖动
+    sampler_power=0.7,  # 采样权重指数
     dataloader_num_workers=0,  # DataLoader worker
+    use_ema=True,  # 启用 EMA 提升泛化稳定性
+    ema_decay=0.999,  # EMA 衰减系数
+    ema_start_epoch=6,  # 前几轮热身后启用 EMA
+    eval_use_tta_hflip=False,  # 默认关闭验证 TTA，避免干扰最佳模型选择
 )
 
 
