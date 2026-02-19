@@ -204,15 +204,32 @@ def train(overfit_debug: bool = False):
         ema_tracker = ModelEMA(model, decay=float(training_profile["ema_decay"]))
     ema_start_epoch = max(1, int(training_profile["ema_start_epoch"]))
 
-    # 学习率调度器：当验证集 Loss 连续 patience 轮不下降时，自动将学习率乘以 factor
+    # 学习率调度器：根据配置选择 ReduceLROnPlateau 或 CosineAnnealingWarmRestarts
     scheduler = None
-    if bool(training_profile["use_val_scheduler"]):
+    scheduler_type = (
+        cfg.TRAINING.scheduler_type if bool(training_profile["use_val_scheduler"]) else None
+    )
+    if scheduler_type == "plateau":
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             mode="min",  # 监控指标为 Loss，越小越好
             factor=cfg.TRAINING.scheduler_factor,  # 学习率衰减因子
             patience=cfg.TRAINING.scheduler_patience,  # 容忍多少轮 Loss 不下降
             min_lr=cfg.TRAINING.scheduler_min_lr,  # 最小学习率
+        )
+    elif scheduler_type == "cosine_warm":
+        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer,
+            T_0=cfg.TRAINING.cosine_T0,  # 初始重启周期
+            T_mult=cfg.TRAINING.cosine_T_mult,  # 周期倍增因子
+            eta_min=cfg.TRAINING.scheduler_min_lr,  # 最小学习率
+        )
+        print(
+            f"学习率调度器: CosineAnnealingWarmRestarts (T0={cfg.TRAINING.cosine_T0}, T_mult={cfg.TRAINING.cosine_T_mult})"
+        )
+    elif scheduler_type is not None:
+        raise ValueError(
+            f"未知的学习率调度器类型: {scheduler_type!r}（支持 'plateau' 或 'cosine_warm'）"
         )
 
     early_stopper = None
@@ -392,9 +409,12 @@ def train(overfit_debug: bool = False):
         plt.close()
         print("  训练曲线已更新")
 
-        # --- 更新学习率 (基于验证集 Loss) ---
+        # --- 更新学习率 ---
         if scheduler is not None:
-            scheduler.step(val_loss)
+            if scheduler_type == "plateau":
+                scheduler.step(val_loss)  # type: ignore[arg-type]  # ReduceLROnPlateau: 基于验证集 Loss
+            else:
+                scheduler.step(epoch + 1)  # type: ignore[arg-type]  # CosineAnnealing: 基于 epoch 计数
         current_lr = optimizer.param_groups[0]["lr"]
         print(f"  当前学习率: {current_lr:.6f}")
 

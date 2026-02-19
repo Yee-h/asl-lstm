@@ -234,12 +234,18 @@ class TrainingConfig:
     grad_clip_max_norm: float
     # 梯度累积步数（等效 batch 放大）
     grad_accum_steps: int
+    # 学习率调度器类型（"plateau" 或 "cosine_warm"）
+    scheduler_type: str
     # ReduceLROnPlateau 衰减因子
     scheduler_factor: float
     # ReduceLROnPlateau patience
     scheduler_patience: int
     # 学习率下限
     scheduler_min_lr: float
+    # CosineAnnealingWarmRestarts: 初始重启周期（epoch数）
+    cosine_T0: int
+    # CosineAnnealingWarmRestarts: 周期倍增因子
+    cosine_T_mult: int
     # 是否启用早停
     early_stopping_enabled: bool
     # 早停耐心轮数
@@ -464,14 +470,17 @@ TRAINING = TrainingConfig(
     save_every_n_epochs=5,  # 定期保存间隔
     grad_clip_max_norm=1.0,  # 梯度裁剪
     grad_accum_steps=4,  # 梯度累积步数
-    scheduler_factor=0.6,  # 学习率衰减比例
-    scheduler_patience=12,  # 学习率调度耐心
+    scheduler_type="cosine_warm",  # 实验2: CosineAnnealingWarmRestarts（基线为 "plateau"）
+    scheduler_factor=0.6,  # 学习率衰减比例（仅 plateau 模式使用）
+    scheduler_patience=12,  # 学习率调度耐心（仅 plateau 模式使用）
     scheduler_min_lr=3e-6,  # 最小学习率
+    cosine_T0=30,  # 实验2: 初始重启周期30个epoch
+    cosine_T_mult=2,  # 实验2: 每次重启周期翻倍（30→60→120→...）
     early_stopping_enabled=True,  # 启用早停
     early_stopping_patience=150,  # 早停耐心
     early_stopping_metric="val_acc",  # 早停监控指标
     early_stopping_min_delta=0.0,  # 最小改进阈值
-    use_weighted_sampler=False,  # 默认关闭类别均衡采样，降低训练分布抖动
+    use_weighted_sampler=False,  # 类别均衡采样（实验1证明无效，保持关闭）
     sampler_power=0.7,  # 采样权重指数
     dataloader_num_workers=0,  # DataLoader worker
     use_ema=True,  # 启用 EMA 提升泛化稳定性
