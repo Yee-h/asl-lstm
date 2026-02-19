@@ -59,11 +59,11 @@ def mixup_data(
 
     lam = np.random.beta(alpha, alpha)
     batch_size = x.size(0)
-    index = torch.randperm(batch_size, device=x.device)
+    index = torch.randperm(batch_size)
 
-    mixed_x = lam * x + (1 - lam) * x[index]
-    y_a, y_b = y, y[index]
-    # 取较长的有效长度，确保混合后不丢失信息
+    mixed_x = lam * x + (1 - lam) * x[index.to(x.device)]
+    y_a, y_b = y, y[index.to(y.device)]
+    # lengths 始终在 CPU（pack_padded_sequence 要求），index 也用 CPU 索引
     mixed_lengths = torch.max(lengths, lengths[index])
 
     return mixed_x, y_a, y_b, mixed_lengths, lam
