@@ -430,7 +430,7 @@ MODEL = ModelConfig(
     dropout=0.35,  # Dropout（Phase 2: 回退至基线值，避免过度正则化）
     label_smoothing=0.03,  # 标签平滑（Phase 2: 回退至基线值）
     use_attention=True,  # 使用注意力
-    attention_dim=64,  # 注意力维度（32→64 更强表达力）
+    attention_dim=32,  # 注意力维度
 )
 
 
@@ -454,7 +454,7 @@ AUGMENTATION = AugmentationConfig(
 TRAINING = TrainingConfig(
     batch_size=4,  # 单步 batch
     learning_rate=8e-4,  # 初始学习率
-    weight_decay=3e-4,  # L2 正则（Phase 2: AdamW 解耦衰减更有效，3e-4 即可）
+    weight_decay=4e-4,  # L2 正则
     num_epochs=600,  # 最大轮数
     device="cuda",  # 期望设备
     seed=42,  # 随机种子
@@ -477,7 +477,7 @@ TRAINING = TrainingConfig(
     use_ema=True,  # 启用 EMA 提升泛化稳定性
     ema_decay=0.999,  # EMA 衰减系数
     ema_start_epoch=6,  # 前几轮热身后启用 EMA
-    eval_use_tta_hflip=True,  # 验证阶段启用水平翻转 TTA（免费提升验证准确率）
+    eval_use_tta_hflip=False,  # 默认关闭验证 TTA，避免干扰最佳模型选择
     mixup_alpha=0.0,  # Mixup 关闭（Phase 3: Phase 1/2 实验证明 Mixup 对小数据集有害，彻底禁用）
 )
 

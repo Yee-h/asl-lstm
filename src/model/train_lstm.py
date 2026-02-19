@@ -192,8 +192,8 @@ def train(overfit_debug: bool = False):
     # --- 定义损失函数和优化器 ---
     # CrossEntropyLoss 适用于多分类任务
     criterion = nn.CrossEntropyLoss(label_smoothing=float(training_profile["label_smoothing"]))
-    # 使用 AdamW 优化器（解耦权重衰减，比 Adam+L2 正则化更有效）
-    optimizer = optim.AdamW(
+    # 使用 Adam 优化器，学习率从配置文件获取 (加入 L2 正则化以减轻过拟合)
+    optimizer = optim.Adam(
         model.parameters(),
         lr=cfg.TRAINING.learning_rate,
         weight_decay=float(training_profile["weight_decay"]),
