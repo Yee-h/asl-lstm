@@ -262,6 +262,8 @@ class TrainingConfig:
     ema_start_epoch: int
     # 验证阶段是否启用水平翻转 TTA
     eval_use_tta_hflip: bool
+    # Sequence-level Mixup alpha（<=0 表示关闭）
+    mixup_alpha: float
 
 
 @dataclass(frozen=True)
@@ -425,10 +427,10 @@ MODEL = ModelConfig(
     hidden_size=128,  # LSTM 隐藏维度（回归到小样本更稳的容量）
     num_layers=2,  # LSTM 层数
     bidirectional=True,  # 双向 LSTM
-    dropout=0.35,  # Dropout
-    label_smoothing=0.03,  # 标签平滑
+    dropout=0.40,  # Dropout（0.35→0.40 轻度增加抑制过拟合）
+    label_smoothing=0.05,  # 标签平滑（0.03→0.05 温和提升）
     use_attention=True,  # 使用注意力
-    attention_dim=32,  # 注意力维度
+    attention_dim=64,  # 注意力维度（32→64 更强表达力）
 )
 
 
@@ -452,7 +454,7 @@ AUGMENTATION = AugmentationConfig(
 TRAINING = TrainingConfig(
     batch_size=4,  # 单步 batch
     learning_rate=8e-4,  # 初始学习率
-    weight_decay=4e-4,  # L2 正则
+    weight_decay=1e-3,  # L2 正则（4e-4→1e-3 配合 AdamW 解耦权重衰减）
     num_epochs=600,  # 最大轮数
     device="cuda",  # 期望设备
     seed=42,  # 随机种子
@@ -475,7 +477,8 @@ TRAINING = TrainingConfig(
     use_ema=True,  # 启用 EMA 提升泛化稳定性
     ema_decay=0.999,  # EMA 衰减系数
     ema_start_epoch=6,  # 前几轮热身后启用 EMA
-    eval_use_tta_hflip=False,  # 默认关闭验证 TTA，避免干扰最佳模型选择
+    eval_use_tta_hflip=True,  # 验证阶段启用水平翻转 TTA（免费提升验证准确率）
+    mixup_alpha=0.3,  # Sequence-level Mixup 插值强度（0=关闭, 0.3=温和混合）
 )
 
 

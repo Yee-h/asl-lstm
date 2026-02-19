@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import numpy as np
 import sys
 import os
 import io
@@ -32,6 +33,53 @@ from src.model.validate_lstm import validate
 from src.model.training_utils import EarlyStopping, ModelEMA, set_global_seed
 
 
+def mixup_data(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    lengths: torch.Tensor,
+    alpha: float = 0.3,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, float]:
+    """Sequence-level Mixup: 对输入序列和标签进行线性插值混合。
+
+    Args:
+        x: 输入特征 (batch, seq_len, input_size)
+        y: 标签 (batch,)
+        lengths: 有效长度 (batch,)
+        alpha: Beta 分布参数（越大混合越强）
+
+    Returns:
+        mixed_x: 混合后的输入
+        y_a: 原始标签
+        y_b: 混合对标签
+        mixed_lengths: 混合后的有效长度（取两者最大值）
+        lam: 混合系数 lambda
+    """
+    if alpha <= 0:
+        return x, y, y, lengths, 1.0
+
+    lam = np.random.beta(alpha, alpha)
+    batch_size = x.size(0)
+    index = torch.randperm(batch_size, device=x.device)
+
+    mixed_x = lam * x + (1 - lam) * x[index]
+    y_a, y_b = y, y[index]
+    # 取较长的有效长度，确保混合后不丢失信息
+    mixed_lengths = torch.max(lengths, lengths[index])
+
+    return mixed_x, y_a, y_b, mixed_lengths, lam
+
+
+def mixup_criterion(
+    criterion: nn.Module,
+    pred: torch.Tensor,
+    y_a: torch.Tensor,
+    y_b: torch.Tensor,
+    lam: float,
+) -> torch.Tensor:
+    """Mixup 损失: lambda * L(pred, y_a) + (1-lambda) * L(pred, y_b)"""
+    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
+
+
 def build_training_profile(overfit_debug: bool = False) -> dict[str, float | bool]:
     """构建训练策略配置，可按需切换到过拟合诊断模式。"""
     profile: dict[str, float | bool] = {
@@ -46,6 +94,7 @@ def build_training_profile(overfit_debug: bool = False) -> dict[str, float | boo
         "ema_decay": float(cfg.TRAINING.ema_decay),
         "ema_start_epoch": int(cfg.TRAINING.ema_start_epoch),
         "use_eval_tta_hflip": bool(cfg.TRAINING.eval_use_tta_hflip),
+        "mixup_alpha": float(cfg.TRAINING.mixup_alpha),
     }
 
     if overfit_debug:
@@ -60,6 +109,7 @@ def build_training_profile(overfit_debug: bool = False) -> dict[str, float | boo
                 "use_early_stopping": False,
                 "use_ema": False,
                 "use_eval_tta_hflip": False,
+                "mixup_alpha": 0.0,
             }
         )
 
@@ -117,7 +167,8 @@ def train(overfit_debug: bool = False):
         f"val_scheduler={training_profile['use_val_scheduler']}, "
         f"early_stopping={training_profile['use_early_stopping']}, "
         f"ema={training_profile['use_ema']}, "
-        f"eval_tta={training_profile['use_eval_tta_hflip']}"
+        f"eval_tta={training_profile['use_eval_tta_hflip']}, "
+        f"mixup_alpha={training_profile['mixup_alpha']}"
     )
 
     # --- 加载数据集 ---
@@ -141,8 +192,8 @@ def train(overfit_debug: bool = False):
     # --- 定义损失函数和优化器 ---
     # CrossEntropyLoss 适用于多分类任务
     criterion = nn.CrossEntropyLoss(label_smoothing=float(training_profile["label_smoothing"]))
-    # 使用 Adam 优化器，学习率从配置文件获取 (加入 L2 正则化以减轻过拟合)
-    optimizer = optim.Adam(
+    # 使用 AdamW 优化器（解耦权重衰减，比 Adam+L2 正则化更有效）
+    optimizer = optim.AdamW(
         model.parameters(),
         lr=cfg.TRAINING.learning_rate,
         weight_decay=float(training_profile["weight_decay"]),
@@ -214,9 +265,25 @@ def train(overfit_debug: bool = False):
             # 确保标签是 LongTensor 类型，多分类任务的要求
             labels = labels.long().to(device)
 
+            # --- Mixup 数据混合（Sequence-level）---
+            use_mixup = float(training_profile["mixup_alpha"]) > 0
+            if use_mixup:
+                inputs, labels_a, labels_b, lengths, lam = mixup_data(
+                    inputs,
+                    labels,
+                    lengths,
+                    alpha=float(training_profile["mixup_alpha"]),
+                )
+            else:
+                labels_a = labels_b = labels
+                lam = 1.0
+
             # --- 前向传播 ---
             outputs = model(inputs, lengths)
-            loss = criterion(outputs, labels)
+            if use_mixup:
+                loss = mixup_criterion(criterion, outputs, labels_a, labels_b, lam)
+            else:
+                loss = criterion(outputs, labels)
             scaled_loss = loss / accum_steps
 
             # --- 反向传播和优化 ---
@@ -236,8 +303,9 @@ def train(overfit_debug: bool = False):
             # --- 统计训练指标 ---
             running_loss += loss.item() * inputs.size(0)
             _, predicted = torch.max(outputs.data, 1)  # 获取预测值 (最大概率对应的索引)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+            total += labels_a.size(0)
+            # Mixup 下用主标签近似统计准确率
+            correct += (predicted == labels_a).sum().item()
 
             # 在进度条上实时更新损失和准确率信息
             current_loss = running_loss / total
