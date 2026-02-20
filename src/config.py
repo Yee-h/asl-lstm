@@ -270,6 +270,12 @@ class TrainingConfig:
     eval_use_tta_hflip: bool
     # Sequence-level Mixup alpha（<=0 表示关闭）
     mixup_alpha: float
+    # 是否启用 SWA（Stochastic Weight Averaging）
+    use_swa: bool
+    # SWA 开始生效的 epoch（之前正常训练，之后开始权重平均）
+    swa_start_epoch: int
+    # SWA 阶段学习率（固定值，SWALR scheduler 使用）
+    swa_lr: float
 
 
 @dataclass(frozen=True)
@@ -430,30 +436,30 @@ MEDIAPIPE = MediapipeConfig(
 
 
 MODEL = ModelConfig(
-    hidden_size=128,  # LSTM 隐藏维度（回归到小样本更稳的容量）
+    hidden_size=128,  # LSTM 隐藏维度（实验4证明64过小，回退128）
     num_layers=2,  # LSTM 层数
     bidirectional=True,  # 双向 LSTM
     dropout=0.35,  # Dropout（Phase 2: 回退至基线值，避免过度正则化）
-    label_smoothing=0.03,  # 标签平滑（Phase 2: 回退至基线值）
+    label_smoothing=0.03,  # 标签平滑（实验5证明0.1虽提高val但降低test，回退0.03）
     use_attention=True,  # 使用注意力
     attention_dim=32,  # 注意力维度
 )
 
 
 AUGMENTATION = AugmentationConfig(
-    rotation_range=18.0,  # 随机旋转角度范围
-    scale_min=0.88,  # 缩放下限
-    scale_max=1.12,  # 缩放上限
-    translate=0.10,  # 平移幅度
-    noise_std=0.0030,  # 噪声强度
-    hflip_prob=0.25,  # 水平翻转概率
+    rotation_range=18.0,  # 基线旋转范围
+    scale_min=0.88,  # 基线缩放下限
+    scale_max=1.12,  # 基线缩放上限
+    translate=0.10,  # 基线平移幅度
+    noise_std=0.003,  # 基线噪声
+    hflip_prob=0.25,  # 基线翻转概率
     hflip_swap_lr=True,  # 翻转后交换左右语义
     hflip_zero_centered=True,  # 零中心翻转策略
-    time_warp_prob=0.16,  # 时间扭曲概率
-    time_warp_min=0.90,  # 时间扭曲下限
-    time_warp_max=1.10,  # 时间扭曲上限
-    frame_dropout_prob=0.10,  # 丢帧概率
-    frame_dropout_max_ratio=0.08,  # 最大丢帧比例
+    time_warp_prob=0.16,  # 基线时间扭曲概率
+    time_warp_min=0.90,  # 基线时间扭曲最小
+    time_warp_max=1.10,  # 基线时间扭曲最大
+    frame_dropout_prob=0.10,  # 基线丢帧概率
+    frame_dropout_max_ratio=0.08,  # 基线丢帧比例
 )
 
 
@@ -488,6 +494,9 @@ TRAINING = TrainingConfig(
     ema_start_epoch=6,  # 前几轮热身后启用 EMA
     eval_use_tta_hflip=False,  # 默认关闭验证 TTA，避免干扰最佳模型选择
     mixup_alpha=0.0,  # Mixup 关闭（Phase 3: Phase 1/2 实验证明 Mixup 对小数据集有害，彻底禁用）
+    use_swa=False,  # SWA 关闭（实验6证明 swa_start=100/lr=5e-5 导致 val 66.77%/test 62.40%，远低于基线）
+    swa_start_epoch=100,  # SWA 开始 epoch（当前关闭，保留配置以备后续调参）
+    swa_lr=5e-5,  # SWA 固定学习率（当前关闭）
 )
 
 

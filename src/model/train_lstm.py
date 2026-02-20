@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.swa_utils import AveragedModel, SWALR
 import numpy as np
 import sys
 import os
@@ -95,6 +96,9 @@ def build_training_profile(overfit_debug: bool = False) -> dict[str, float | boo
         "ema_start_epoch": int(cfg.TRAINING.ema_start_epoch),
         "use_eval_tta_hflip": bool(cfg.TRAINING.eval_use_tta_hflip),
         "mixup_alpha": float(cfg.TRAINING.mixup_alpha),
+        "use_swa": bool(cfg.TRAINING.use_swa),
+        "swa_start_epoch": int(cfg.TRAINING.swa_start_epoch),
+        "swa_lr": float(cfg.TRAINING.swa_lr),
     }
 
     if overfit_debug:
@@ -110,6 +114,7 @@ def build_training_profile(overfit_debug: bool = False) -> dict[str, float | boo
                 "use_ema": False,
                 "use_eval_tta_hflip": False,
                 "mixup_alpha": 0.0,
+                "use_swa": False,
             }
         )
 
@@ -168,7 +173,8 @@ def train(overfit_debug: bool = False):
         f"early_stopping={training_profile['use_early_stopping']}, "
         f"ema={training_profile['use_ema']}, "
         f"eval_tta={training_profile['use_eval_tta_hflip']}, "
-        f"mixup_alpha={training_profile['mixup_alpha']}"
+        f"mixup_alpha={training_profile['mixup_alpha']}, "
+        f"swa={training_profile['use_swa']}"
     )
 
     # --- 加载数据集 ---
@@ -240,6 +246,20 @@ def train(overfit_debug: bool = False):
             patience=cfg.TRAINING.early_stopping_patience,
             min_delta=cfg.TRAINING.early_stopping_min_delta,
         )
+
+    # --- SWA 初始化 ---
+    swa_model = None
+    swa_scheduler = None
+    swa_start = int(training_profile["swa_start_epoch"])
+    if bool(training_profile["use_swa"]):
+        swa_model = AveragedModel(model)
+        swa_scheduler = SWALR(
+            optimizer,
+            swa_lr=float(training_profile["swa_lr"]),
+            anneal_strategy="linear",
+            anneal_epochs=5,
+        )
+        print(f"SWA 已启用: start_epoch={swa_start}, swa_lr={training_profile['swa_lr']}")
 
     best_model_path = os.path.join(cfg.PATHS.model_save_dir, "best_model.pth")
     best_acc = -1.0
@@ -410,13 +430,19 @@ def train(overfit_debug: bool = False):
         print("  训练曲线已更新")
 
         # --- 更新学习率 ---
-        if scheduler is not None:
+        in_swa_phase = swa_model is not None and (epoch + 1) > swa_start
+        if in_swa_phase:
+            # SWA 阶段：使用 SWALR 调度器（固定小学习率）
+            swa_model.update_parameters(model)
+            swa_scheduler.step()  # type: ignore[union-attr]
+        elif scheduler is not None:
             if scheduler_type == "plateau":
                 scheduler.step(val_loss)  # type: ignore[arg-type]  # ReduceLROnPlateau: 基于验证集 Loss
             else:
                 scheduler.step(epoch + 1)  # type: ignore[arg-type]  # CosineAnnealing: 基于 epoch 计数
         current_lr = optimizer.param_groups[0]["lr"]
-        print(f"  当前学习率: {current_lr:.6f}")
+        swa_status = " [SWA]" if in_swa_phase else ""
+        print(f"  当前学习率: {current_lr:.6f}{swa_status}")
 
         if early_stopper is not None:
             monitored_value = (
@@ -427,6 +453,14 @@ def train(overfit_debug: bool = False):
                     f"  EarlyStopping 触发：{cfg.TRAINING.early_stopping_metric} 连续 {cfg.TRAINING.early_stopping_patience} 轮无改善"
                 )
                 break
+
+    # --- SWA 收尾：保存 SWA 平均模型 ---
+    if swa_model is not None:
+        swa_save_path = os.path.join(cfg.PATHS.model_save_dir, "swa_model.pth")
+        # 提取 SWA 平均后的 state_dict（去掉 AveragedModel 的 "module." 前缀）
+        swa_state = swa_model.module.state_dict()
+        torch.save(swa_state, swa_save_path)
+        print(f"SWA 平均模型已保存至 {swa_save_path}")
 
     print("训练结束。")
 

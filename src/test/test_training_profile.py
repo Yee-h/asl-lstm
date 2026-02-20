@@ -22,6 +22,7 @@ class TestTrainingProfile(unittest.TestCase):
         self.assertFalse(profile["use_early_stopping"])
         self.assertFalse(profile["use_ema"])
         self.assertFalse(profile["use_eval_tta_hflip"])
+        self.assertFalse(profile["use_swa"])
 
     def test_default_profile_keeps_current_strategy(self):
         profile = build_training_profile(overfit_debug=False)
@@ -35,6 +36,9 @@ class TestTrainingProfile(unittest.TestCase):
         self.assertIn("use_early_stopping", profile)
         self.assertIn("use_ema", profile)
         self.assertIn("use_eval_tta_hflip", profile)
+        self.assertIn("use_swa", profile)
+        self.assertIn("swa_start_epoch", profile)
+        self.assertIn("swa_lr", profile)
 
 
 if __name__ == "__main__":
