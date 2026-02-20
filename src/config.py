@@ -447,8 +447,8 @@ MODEL = ModelConfig(
     label_smoothing=0.03,  # 标签平滑（实验5证明0.1虽提高val但降低test，回退0.03）
     use_attention=True,  # 使用注意力
     attention_dim=32,  # 注意力维度
-    use_focal_loss=True,  # 实验8: 启用 Focal Loss 聚焦难分类样本
-    focal_gamma=1.0,  # 实验8: gamma=1.0（温和聚焦，避免过度抑制易分类样本）
+    use_focal_loss=False,  # 实验8结果: Focal Loss 未改善test(68.22% vs 69.38%)，回退关闭
+    focal_gamma=1.0,  # Focal Loss gamma（当前关闭）
 )
 
 

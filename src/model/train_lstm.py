@@ -518,10 +518,36 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="启用过拟合诊断模式（关闭增强与正则，验证模型可拟合能力）",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="覆盖配置中的随机种子（用于多种子集成训练）",
+    )
+    parser.add_argument(
+        "--run-tag",
+        type=str,
+        default=None,
+        help="运行标签，checkpoint 保存到 checkpoints/<run-tag>/ 子目录（用于多种子集成训练）",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     _configure_windows_console()
     args = parse_args()
+    # 覆盖种子（如指定）
+    if args.seed is not None:
+        from dataclasses import replace as _dc_replace
+
+        cfg.TRAINING = _dc_replace(cfg.TRAINING, seed=args.seed)
+        print(f"[多种子模式] 种子已覆盖为: {args.seed}")
+    # 覆盖 checkpoint 目录（如指定 run-tag）
+    if args.run_tag is not None:
+        from dataclasses import replace as _dc_replace
+
+        run_dir = os.path.join(cfg.PATHS.model_save_dir, args.run_tag)
+        os.makedirs(run_dir, exist_ok=True)
+        cfg.PATHS = _dc_replace(cfg.PATHS, model_save_dir=run_dir)
+        print(f"[多种子模式] checkpoint 目录: {run_dir}")
     train(overfit_debug=args.overfit_debug)
