@@ -81,6 +81,38 @@ def mixup_criterion(
     return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
 
+class FocalLoss(nn.Module):
+    """Focal Loss — 对易分类样本降权，聚焦难分类样本。
+
+    Lin et al., "Focal Loss for Dense Object Detection", ICCV 2017.
+    FL(p_t) = -alpha_t * (1 - p_t)^gamma * log(p_t)
+
+    Args:
+        gamma: 聚焦参数，gamma=0 等价于 CrossEntropyLoss。推荐 1.0~2.0。
+        label_smoothing: 标签平滑系数，与 CrossEntropyLoss 用法一致。
+    """
+
+    def __init__(self, gamma: float = 1.0, label_smoothing: float = 0.0):
+        super().__init__()
+        self.gamma = gamma
+        self.label_smoothing = label_smoothing
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        # 使用 CrossEntropyLoss 计算 per-sample log(p_t)（含 label_smoothing）
+        ce_loss = nn.functional.cross_entropy(
+            logits,
+            targets,
+            reduction="none",
+            label_smoothing=self.label_smoothing,
+        )
+        # p_t = exp(-CE)
+        pt = torch.exp(-ce_loss)
+        # Focal 权重
+        focal_weight = (1.0 - pt) ** self.gamma
+        loss = focal_weight * ce_loss
+        return loss.mean()
+
+
 def build_training_profile(overfit_debug: bool = False) -> dict[str, float | bool]:
     """构建训练策略配置，可按需切换到过拟合诊断模式。"""
     profile: dict[str, float | bool] = {
@@ -99,6 +131,8 @@ def build_training_profile(overfit_debug: bool = False) -> dict[str, float | boo
         "use_swa": bool(cfg.TRAINING.use_swa),
         "swa_start_epoch": int(cfg.TRAINING.swa_start_epoch),
         "swa_lr": float(cfg.TRAINING.swa_lr),
+        "use_focal_loss": bool(cfg.MODEL.use_focal_loss),
+        "focal_gamma": float(cfg.MODEL.focal_gamma),
     }
 
     if overfit_debug:
@@ -115,6 +149,7 @@ def build_training_profile(overfit_debug: bool = False) -> dict[str, float | boo
                 "use_eval_tta_hflip": False,
                 "mixup_alpha": 0.0,
                 "use_swa": False,
+                "use_focal_loss": False,
             }
         )
 
@@ -196,8 +231,19 @@ def train(overfit_debug: bool = False):
     print(f"模型参数总量: {sum(p.numel() for p in model.parameters()):,}")
 
     # --- 定义损失函数和优化器 ---
-    # CrossEntropyLoss 适用于多分类任务
-    criterion = nn.CrossEntropyLoss(label_smoothing=float(training_profile["label_smoothing"]))
+    if bool(training_profile["use_focal_loss"]):
+        criterion = FocalLoss(
+            gamma=float(training_profile["focal_gamma"]),
+            label_smoothing=float(training_profile["label_smoothing"]),
+        )
+        print(
+            f"损失函数: FocalLoss(gamma={training_profile['focal_gamma']}, "
+            f"label_smoothing={training_profile['label_smoothing']})"
+        )
+    else:
+        # CrossEntropyLoss 适用于多分类任务
+        criterion = nn.CrossEntropyLoss(label_smoothing=float(training_profile["label_smoothing"]))
+        print(f"损失函数: CrossEntropyLoss(label_smoothing={training_profile['label_smoothing']})")
     # 使用 Adam 优化器，学习率从配置文件获取 (加入 L2 正则化以减轻过拟合)
     optimizer = optim.Adam(
         model.parameters(),
