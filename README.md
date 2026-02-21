@@ -142,6 +142,20 @@ uv run python src/model/train_lstm.py --overfit-debug
 *该模式会临时关闭训练增强、类别重采样、Dropout、标签平滑与权重衰减。*
 *同时会关闭验证集学习率调度与早停，避免诊断过程被验证集波动打断。*
 
+快速实验（运行时覆盖，不改 `src/config.py`）：
+```bash
+uv run python src/model/train_lstm.py \
+  --run-tag exp_e02_trial1 \
+  --seed 42 \
+  --epochs 180 \
+  --learning-rate 7e-4 \
+  --weight-decay 3e-4 \
+  --dropout 0.30 \
+  --label-smoothing 0.02 \
+  --mixup-alpha 0.0
+```
+*该命令会将 checkpoint 输出到 `src/checkpoints/exp_e02_trial1/`，便于实验隔离与回溯。*
+
 ### 3.1 模型评估与 checkpoint 平均
 评估默认 best 模型：
 ```bash

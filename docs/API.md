@@ -18,6 +18,14 @@
 - 模型结构（当前回归基线）: BiLSTM + Attention + Dropout + Linear 分类头。
 - 常用参数:
   - `--overfit-debug`: 启用过拟合诊断模式（关闭训练增强、类别重采样、Dropout、标签平滑、权重衰减、验证集调度与早停）。
+  - `--seed`: 覆盖随机种子（用于多种子实验）。
+  - `--run-tag`: 覆盖 checkpoint 输出子目录（用于实验隔离）。
+  - `--epochs`: 覆盖训练轮数（用于短训筛选或长训定长实验）。
+  - `--learning-rate`: 覆盖学习率。
+  - `--weight-decay`: 覆盖权重衰减。
+  - `--dropout`: 覆盖模型 Dropout（`[0, 1)`）。
+  - `--label-smoothing`: 覆盖标签平滑（`[0, 1)`）。
+  - `--mixup-alpha`: 覆盖 Mixup 强度（`0` 表示关闭）。
 
 ### 2.3 评估入口
 - 脚本: `src/model/evaluate_lstm.py`

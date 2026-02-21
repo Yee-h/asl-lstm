@@ -16,7 +16,6 @@ import time
 
 import torch
 import torch.nn.functional as F
-from tqdm import tqdm
 
 
 def _configure_windows_console() -> None:

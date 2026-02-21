@@ -30,6 +30,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 import src.config as cfg
 from src.model.model_lstm import get_model
 from src.model.dataloader import get_dataloaders
+from src.model.runtime_overrides import apply_runtime_overrides
 from src.model.validate_lstm import validate
 from src.model.training_utils import EarlyStopping, ModelEMA, set_global_seed
 
@@ -530,24 +531,65 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="运行标签，checkpoint 保存到 checkpoints/<run-tag>/ 子目录（用于多种子集成训练）",
     )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=None,
+        help="覆盖训练轮数（用于快速筛选实验）",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=None,
+        help="覆盖学习率",
+    )
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=None,
+        help="覆盖权重衰减",
+    )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=None,
+        help="覆盖模型 Dropout（范围 [0, 1)）",
+    )
+    parser.add_argument(
+        "--label-smoothing",
+        type=float,
+        default=None,
+        help="覆盖标签平滑（范围 [0, 1)）",
+    )
+    parser.add_argument(
+        "--mixup-alpha",
+        type=float,
+        default=None,
+        help="覆盖 Mixup alpha（<0 会报错，0 表示关闭）",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     _configure_windows_console()
     args = parse_args()
-    # 覆盖种子（如指定）
+
+    override_result = apply_runtime_overrides(
+        seed=args.seed,
+        run_tag=args.run_tag,
+        epochs=args.epochs,
+        learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay,
+        dropout=args.dropout,
+        label_smoothing=args.label_smoothing,
+        mixup_alpha=args.mixup_alpha,
+    )
+
     if args.seed is not None:
-        from dataclasses import replace as _dc_replace
-
-        cfg.TRAINING = _dc_replace(cfg.TRAINING, seed=args.seed)
-        print(f"[多种子模式] 种子已覆盖为: {args.seed}")
-    # 覆盖 checkpoint 目录（如指定 run-tag）
+        print(f"[运行时覆盖] 种子: {override_result['seed']}")
     if args.run_tag is not None:
-        from dataclasses import replace as _dc_replace
+        print(f"[运行时覆盖] checkpoint 目录: {override_result['model_save_dir']}")
+    if args.epochs is not None:
+        print(f"[运行时覆盖] 训练轮数: {override_result['epochs']}")
 
-        run_dir = os.path.join(cfg.PATHS.model_save_dir, args.run_tag)
-        os.makedirs(run_dir, exist_ok=True)
-        cfg.PATHS = _dc_replace(cfg.PATHS, model_save_dir=run_dir)
-        print(f"[多种子模式] checkpoint 目录: {run_dir}")
     train(overfit_debug=args.overfit_debug)

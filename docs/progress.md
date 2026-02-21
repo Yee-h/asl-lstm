@@ -332,3 +332,29 @@
   - `best_model` 测试准确率与报告路径。
   - `averaged` 模型测试准确率与报告路径。
   - 峰值前后关键训练日志片段（建议 20~40 轮）。
+
+## [2026-02-21 18:24:46] 高准确度计划会话启动
+- **目标**: 围绕 `train>=95% / val>=80% / test>=75%` 制定并执行增量实验闭环。
+- **现状复盘**:
+  - 历史最佳验证准确率 `73.29%`（`logs/seed123_training.log`, epoch 394）。
+  - 历史最佳测试准确率 `69.38%`（`logs/evaluation_report_20260220_180145.txt`）。
+- **动作**: 输出 `docs/fix-plan.md` 新版路线图并启动 E01。
+
+## [2026-02-21 18:26:30] E01 完成（实验基础设施解耦）
+- **核心改动**:
+  - 新增 `src/model/runtime_overrides.py`，集中处理运行时覆盖参数与合法性校验。
+  - `src/model/train_lstm.py` 新增参数：`--epochs`、`--learning-rate`、`--weight-decay`、`--dropout`、`--label-smoothing`、`--mixup-alpha`。
+  - 新增测试 `src/test/test_runtime_overrides.py`。
+- **验证结果**:
+  - `uv run python -m unittest src.test.test_runtime_overrides -v` 通过。
+  - 全量门禁：`compileall + unittest discover + ruff check` 通过（40 项测试）。
+
+## [2026-02-21 18:26:41] E01-SMOKE 完成（短训链路验证）
+- **实验命令**:
+  - `uv run python src/model/train_lstm.py --run-tag exp_e01_smoke --seed 42 --epochs 5`
+  - `uv run python src/model/evaluate_lstm.py --no-tta --model-path src/checkpoints/exp_e01_smoke/best_model.pth`
+- **结果**:
+  - 训练集准确率：`13.04%`
+  - 验证集准确率：`14.84%`
+  - 测试集准确率：`13.57%`（`logs/evaluation_report_20260221_182641.txt`）
+- **结论**: 运行时覆盖与实验链路可用，下一步进入 E02（收敛窗口与学习率周期重定位）。
