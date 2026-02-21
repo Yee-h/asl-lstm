@@ -358,3 +358,16 @@
   - 验证集准确率：`14.84%`
   - 测试集准确率：`13.57%`（`logs/evaluation_report_20260221_182641.txt`）
 - **结论**: 运行时覆盖与实验链路可用，下一步进入 E02（收敛窗口与学习率周期重定位）。
+
+## [2026-02-21 18:40:28] E02-T1 完成（首轮长训参数组合）
+- **实验配置**:
+  - 训练：`uv run python src/model/train_lstm.py --run-tag exp_e02_t1_d030_ls001_wd3e4_lr7e4 --seed 42 --epochs 50 --dropout 0.30 --label-smoothing 0.01 --weight-decay 0.0003 --learning-rate 0.0007`
+  - 评估：`uv run python src/model/evaluate_lstm.py --model-path src/checkpoints/exp_e02_t1_d030_ls001_wd3e4_lr7e4/best_model.pth`
+- **结果**:
+  - 训练集准确率：`67.48%`
+  - 验证集准确率：`55.79%`
+  - 测试集准确率：`47.29%`（`logs/evaluation_report_20260221_184028.txt`）
+- **结论**:
+  - 明显低于当前历史基线（val `73.29%` / test `69.38%`）。
+  - `E02-T1` 判定为失败组合，不纳入后续集成候选。
+  - 下一步进入 `E02-T2/T3`，优先回到更接近历史有效区间的参数带再做单变量调整。
