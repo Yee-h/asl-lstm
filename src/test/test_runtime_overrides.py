@@ -15,11 +15,13 @@ from src.model.model_lstm import get_model
 
 class TestRuntimeOverrides(unittest.TestCase):
     def setUp(self):
+        self._preprocess_backup = cfg.PREPROCESS
         self._training_backup = cfg.TRAINING
         self._model_backup = cfg.MODEL
         self._paths_backup = cfg.PATHS
 
     def tearDown(self):
+        cfg.PREPROCESS = self._preprocess_backup
         cfg.TRAINING = self._training_backup
         cfg.MODEL = self._model_backup
         cfg.PATHS = self._paths_backup
@@ -37,6 +39,9 @@ class TestRuntimeOverrides(unittest.TestCase):
                 dropout=0.28,
                 label_smoothing=0.02,
                 mixup_alpha=0.1,
+                min_valid_ratio_per_sample=0.4,
+                use_weighted_sampler=True,
+                sampler_power=0.9,
             )
 
             self.assertEqual(cfg.TRAINING.seed, 123)
@@ -44,8 +49,11 @@ class TestRuntimeOverrides(unittest.TestCase):
             self.assertAlmostEqual(cfg.TRAINING.learning_rate, 1e-3)
             self.assertAlmostEqual(cfg.TRAINING.weight_decay, 1e-4)
             self.assertAlmostEqual(cfg.TRAINING.mixup_alpha, 0.1)
+            self.assertTrue(cfg.TRAINING.use_weighted_sampler)
+            self.assertAlmostEqual(cfg.TRAINING.sampler_power, 0.9)
             self.assertAlmostEqual(cfg.MODEL.dropout, 0.28)
             self.assertAlmostEqual(cfg.MODEL.label_smoothing, 0.02)
+            self.assertAlmostEqual(cfg.PREPROCESS.min_valid_ratio_per_sample, 0.4)
             self.assertEqual(os.path.basename(cfg.PATHS.model_save_dir), "exp_demo")
             self.assertTrue(os.path.isdir(cfg.PATHS.model_save_dir))
 

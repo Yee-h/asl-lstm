@@ -26,6 +26,9 @@
   - `--dropout`: 覆盖模型 Dropout（`[0, 1)`）。
   - `--label-smoothing`: 覆盖标签平滑（`[0, 1)`）。
   - `--mixup-alpha`: 覆盖 Mixup 强度（`0` 表示关闭）。
+  - `--min-valid-ratio-per-sample`: 覆盖样本质量阈值（`[0, 1]`）。
+  - `--use-weighted-sampler` / `--no-use-weighted-sampler`: 覆盖是否启用类别均衡采样。
+  - `--sampler-power`: 覆盖采样权重指数（`>=0`）。
 
 ### 2.3 评估入口
 - 脚本: `src/model/evaluate_lstm.py`

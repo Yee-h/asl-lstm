@@ -34,6 +34,13 @@ def _validate_probability(name: str, value: float) -> float:
     return parsed
 
 
+def _validate_ratio_inclusive(name: str, value: float) -> float:
+    parsed = float(value)
+    if not 0.0 <= parsed <= 1.0:
+        raise ValueError(f"{name} 必须在 [0, 1] 区间，当前值: {value}")
+    return parsed
+
+
 def apply_runtime_overrides(
     *,
     seed: int | None = None,
@@ -44,10 +51,14 @@ def apply_runtime_overrides(
     dropout: float | None = None,
     label_smoothing: float | None = None,
     mixup_alpha: float | None = None,
+    min_valid_ratio_per_sample: float | None = None,
+    use_weighted_sampler: bool | None = None,
+    sampler_power: float | None = None,
 ) -> dict[str, str]:
     """在运行时覆盖训练配置，便于实验快速迭代。"""
     training_updates: dict[str, int | float] = {}
     model_updates: dict[str, float] = {}
+    preprocess_updates: dict[str, float] = {}
 
     if epochs is not None:
         training_updates["num_epochs"] = _validate_positive_int("epochs", epochs)
@@ -59,6 +70,17 @@ def apply_runtime_overrides(
         )
     if mixup_alpha is not None:
         training_updates["mixup_alpha"] = _validate_non_negative_float("mixup_alpha", mixup_alpha)
+    if sampler_power is not None:
+        training_updates["sampler_power"] = _validate_non_negative_float(
+            "sampler_power", sampler_power
+        )
+    if use_weighted_sampler is not None:
+        training_updates["use_weighted_sampler"] = bool(use_weighted_sampler)
+
+    if min_valid_ratio_per_sample is not None:
+        preprocess_updates["min_valid_ratio_per_sample"] = _validate_ratio_inclusive(
+            "min_valid_ratio_per_sample", min_valid_ratio_per_sample
+        )
 
     if dropout is not None:
         model_updates["dropout"] = _validate_probability("dropout", dropout)
@@ -73,6 +95,9 @@ def apply_runtime_overrides(
 
     if model_updates:
         cfg.MODEL = replace(cfg.MODEL, **model_updates)
+
+    if preprocess_updates:
+        cfg.PREPROCESS = replace(cfg.PREPROCESS, **preprocess_updates)
 
     if run_tag is not None:
         normalized_run_tag = run_tag.strip()

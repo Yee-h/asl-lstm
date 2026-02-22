@@ -444,3 +444,39 @@
   - E03 最优仍为 `E03-T1`（val `73.89%` / test `67.05%`）。
 - **状态推进**:
   - `E03 -> completed`，下一步进入 `E04`（数据质量阈值与采样策略实验）。
+
+## [2026-02-22 13:20:00] E04 运行时覆盖能力补齐
+- **目标**:
+  - 为 E04 单变量实验补齐命令行覆盖能力，避免频繁修改 `src/config.py`。
+- **TDD 动作**:
+  - 先修改 `src/test/test_runtime_overrides.py`，新增对 `min_valid_ratio_per_sample`、`use_weighted_sampler`、`sampler_power` 的断言（先报错后修复）。
+  - 更新 `src/model/runtime_overrides.py`，支持覆盖以上 3 个参数并补充区间校验。
+  - 更新 `src/model/train_lstm.py` 参数解析，新增：
+    - `--min-valid-ratio-per-sample`
+    - `--use-weighted-sampler / --no-use-weighted-sampler`
+    - `--sampler-power`
+- **验证结果**:
+  - `uv run python -m unittest src.test.test_runtime_overrides -v` 通过。
+  - 全量门禁：`compileall + unittest discover + ruff check` 通过（41 项测试）。
+
+## [2026-02-22 13:45:28] E04-T1 完成（min_valid_ratio_per_sample=0.40）
+- **实验配置**:
+  - 训练：`uv run python src/model/train_lstm.py --run-tag exp_e04_t1_mvr040_ls001_ep240 --seed 42 --epochs 240 --label-smoothing 0.01 --min-valid-ratio-per-sample 0.40`
+  - 评估：`uv run python src/model/evaluate_lstm.py --no-tta --model-path src/checkpoints/exp_e04_t1_mvr040_ls001_ep240/best_model.pth`
+- **结果**:
+  - 训练集准确率：最佳 `79.82%`（epoch 237）
+  - 验证集准确率：最佳 `73.89%`（epoch 237，`tool_c83e10bd4001S1Bt5KyEJoduhr`）
+  - 测试集准确率：`67.05%`（`logs/evaluation_report_20260222_134528.txt`）
+- **结论**:
+  - 与 `E03-T1` 指标一致，且 train/val/test 加载样本数仍为 `1442/337/258`，判定 `0.35 -> 0.40` 阈值调整未实际改变训练数据分布。
+
+## [2026-02-22 14:46:34] E04-T2 完成（weighted sampler, power=0.70）
+- **实验配置**:
+  - 训练：`uv run python src/model/train_lstm.py --run-tag exp_e04_t2_ws070_ls001_ep240 --seed 42 --epochs 240 --label-smoothing 0.01 --use-weighted-sampler --sampler-power 0.70`
+  - 评估：`uv run python src/model/evaluate_lstm.py --no-tta --model-path src/checkpoints/exp_e04_t2_ws070_ls001_ep240/best_model.pth`
+- **结果**:
+  - 训练集准确率：最佳 `76.56%`（epoch 228）
+  - 验证集准确率：最佳 `70.33%`（epoch 228，`tool_c841907b90017D2LLsG6eJ1C2y`）
+  - 测试集准确率：`65.50%`（`logs/evaluation_report_20260222_144634.txt`）
+- **结论**:
+  - 相比 `E03-T1`（val `73.89%` / test `67.05%`）明显回退，当前 weighted sampler 路径判定失败。

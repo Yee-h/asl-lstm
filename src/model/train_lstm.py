@@ -567,6 +567,24 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="覆盖 Mixup alpha（<0 会报错，0 表示关闭）",
     )
+    parser.add_argument(
+        "--min-valid-ratio-per-sample",
+        type=float,
+        default=None,
+        help="覆盖样本质量阈值 min_valid_ratio_per_sample（范围 [0, 1]）",
+    )
+    parser.add_argument(
+        "--use-weighted-sampler",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="覆盖是否启用类别均衡采样（--use-weighted-sampler / --no-use-weighted-sampler）",
+    )
+    parser.add_argument(
+        "--sampler-power",
+        type=float,
+        default=None,
+        help="覆盖类别采样权重指数（>=0）",
+    )
     return parser.parse_args()
 
 
@@ -583,6 +601,9 @@ if __name__ == "__main__":
         dropout=args.dropout,
         label_smoothing=args.label_smoothing,
         mixup_alpha=args.mixup_alpha,
+        min_valid_ratio_per_sample=args.min_valid_ratio_per_sample,
+        use_weighted_sampler=args.use_weighted_sampler,
+        sampler_power=args.sampler_power,
     )
 
     if args.seed is not None:
@@ -591,5 +612,13 @@ if __name__ == "__main__":
         print(f"[运行时覆盖] checkpoint 目录: {override_result['model_save_dir']}")
     if args.epochs is not None:
         print(f"[运行时覆盖] 训练轮数: {override_result['epochs']}")
+    if args.min_valid_ratio_per_sample is not None:
+        print(
+            f"[运行时覆盖] min_valid_ratio_per_sample: {cfg.PREPROCESS.min_valid_ratio_per_sample}"
+        )
+    if args.use_weighted_sampler is not None:
+        print(f"[运行时覆盖] use_weighted_sampler: {cfg.TRAINING.use_weighted_sampler}")
+    if args.sampler_power is not None:
+        print(f"[运行时覆盖] sampler_power: {cfg.TRAINING.sampler_power}")
 
     train(overfit_debug=args.overfit_debug)

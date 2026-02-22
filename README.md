@@ -152,7 +152,10 @@ uv run python src/model/train_lstm.py \
   --weight-decay 3e-4 \
   --dropout 0.30 \
   --label-smoothing 0.02 \
-  --mixup-alpha 0.0
+  --mixup-alpha 0.0 \
+  --min-valid-ratio-per-sample 0.40 \
+  --use-weighted-sampler \
+  --sampler-power 0.70
 ```
 *该命令会将 checkpoint 输出到 `src/checkpoints/exp_e02_trial1/`，便于实验隔离与回溯。*
 
