@@ -397,3 +397,50 @@
   - 相比 `E02-T2`（test `60.47%`）继续提升，但幅度明显收敛。
   - 仍低于历史最优基线（val `73.29%` / test `69.38%`），证明仅延长窗口不足以突破瓶颈。
   - E02 阶段结案，下一步转入 E03（正则化平衡）做单变量实验。
+
+## [2026-02-22 10:55:00] E03 运行时覆盖修复（dropout 覆盖生效性）
+- **触发问题**:
+  - `E03-T1` 与 `E03-T2` 训练曲线几乎完全一致，定位为 `dropout` 运行时覆盖未真正影响新建模型。
+- **修复动作（TDD）**:
+  - `src/test/test_runtime_overrides.py` 新增 `test_runtime_dropout_override_applies_to_new_model`（先失败后通过）。
+  - `src/model/model_lstm.py` 调整 `get_model()`，改为按调用时 `cfg` 显式传参创建模型，避免默认参数在导入期固化。
+- **验证结果**:
+  - `uv run python -m unittest src.test.test_runtime_overrides -v` 通过。
+  - 全量门禁：`compileall + unittest discover + ruff check` 通过（41 项测试）。
+
+## [2026-02-22 11:40:10] E03-T2 完成（dropout=0.30，修复后重跑）
+- **实验配置**:
+  - 训练：`uv run python src/model/train_lstm.py --run-tag exp_e03_t2_ls001_d030_ep240 --seed 42 --epochs 240 --label-smoothing 0.01 --dropout 0.30`
+  - 评估：`uv run python src/model/evaluate_lstm.py --no-tta --model-path src/checkpoints/exp_e03_t2_ls001_d030_ep240/best_model.pth`
+- **结果**:
+  - 训练集准确率：最佳 `86.62%`（epoch 145）
+  - 验证集准确率：最佳 `71.81%`（epoch 145，`tool_c836e5a6f001sH8eUgoiZPVaMU`）
+  - 测试集准确率：`64.73%`（`logs/evaluation_report_20260222_114010.txt`）
+- **结论**:
+  - 相比 `E03-T1`（val `73.89%` / test `67.05%`）整体回退，`dropout=0.30` 组合判定失败。
+
+## [2026-02-22 11:40:26] E03-T1 测试口径复核（no-TTA）
+- **评估命令**:
+  - `uv run python src/model/evaluate_lstm.py --no-tta --model-path src/checkpoints/exp_e03_t1_ls001_ep240/best_model.pth`
+- **复核结果**:
+  - 测试集准确率：`67.05%`（`logs/evaluation_report_20260222_114026.txt`）
+- **说明**:
+  - 与此前记录一致，确认 `E03-T1` 仍是 E03 阶段最优测试结果。
+
+## [2026-02-22 12:40:51] E03-T3 完成（weight_decay=2e-4）
+- **实验配置**:
+  - 训练：`uv run python src/model/train_lstm.py --run-tag exp_e03_t3_ls001_wd2e4_ep240 --seed 42 --epochs 240 --label-smoothing 0.01 --weight-decay 0.0002`
+  - 评估：`uv run python src/model/evaluate_lstm.py --no-tta --model-path src/checkpoints/exp_e03_t3_ls001_wd2e4_ep240/best_model.pth`
+- **结果**:
+  - 训练集准确率：最佳 `80.10%`（epoch 219）
+  - 验证集准确率：最佳 `70.62%`（epoch 219，`tool_c83a5b874001oHnTxU0dQQ7tCi`）
+  - 测试集准确率：`58.53%`（`logs/evaluation_report_20260222_124051.txt`）
+- **结论**:
+  - 低权重衰减导致泛化显著下降，`E03-T3` 判定失败。
+
+## [2026-02-22 12:45:00] E03 阶段结案
+- **阶段结论**:
+  - `E03-T1/T2/T3` 均未突破历史测试最优 `69.38%`。
+  - E03 最优仍为 `E03-T1`（val `73.89%` / test `67.05%`）。
+- **状态推进**:
+  - `E03 -> completed`，下一步进入 `E04`（数据质量阈值与采样策略实验）。

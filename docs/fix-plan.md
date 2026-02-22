@@ -70,9 +70,24 @@
   - 测试结果：`64.34%`（`logs/evaluation_report_20260221_195451.txt`）。
   - 结论：较 `E02-T2` 继续提升（+3.87pt test），但依旧未回到历史最优区间，单纯拉长收敛窗口收益趋缓。
 
-### E03（待执行）正则化平衡实验
+### E03（已完成）正则化平衡实验
 - 主因子：`dropout`、`label_smoothing`、`weight_decay`（采用单变量+小步长）。
 - 目标：在保持 `train>=95%` 的前提下抬高验证上限。
+- 已执行子实验：
+  - `E03-T1`（`exp_e03_t1_ls001_ep240`，`label_smoothing=0.01`）
+    - 训练结果：最佳 `train=79.82%`、最佳 `val=73.89%`（epoch 237，`tool_c803f3509001ush057voE78CdU`）。
+    - 测试结果（no-TTA）：`67.05%`（`logs/evaluation_report_20260222_114026.txt`）。
+    - 结论：验证集创新高，但测试集仍低于历史最优 `69.38%`。
+  - `E03-T2`（`exp_e03_t2_ls001_d030_ep240`，`dropout=0.30` + `label_smoothing=0.01`）
+    - 修正说明：先修复运行时 `dropout` 覆盖未生效问题后重跑。
+    - 训练结果：最佳 `train=86.62%`、最佳 `val=71.81%`（epoch 145，`tool_c836e5a6f001sH8eUgoiZPVaMU`）。
+    - 测试结果（no-TTA）：`64.73%`（`logs/evaluation_report_20260222_114010.txt`）。
+    - 结论：较 `E03-T1` 明显回退，`dropout=0.30` 在当前配置下不优。
+  - `E03-T3`（`exp_e03_t3_ls001_wd2e4_ep240`，`weight_decay=2e-4` + `label_smoothing=0.01`）
+    - 训练结果：最佳 `train=80.10%`、最佳 `val=70.62%`（epoch 219，`tool_c83a5b874001oHnTxU0dQQ7tCi`）。
+    - 测试结果（no-TTA）：`58.53%`（`logs/evaluation_report_20260222_124051.txt`）。
+    - 结论：泛化能力显著恶化，低权重衰减路径判定失败。
+- 阶段结论：E03 三轮均未突破历史测试最优，进入 E04（数据质量阈值与采样策略）。
 
 ### E04（待执行）数据质量阈值与采样策略实验
 - 主因子：`min_valid_ratio_per_sample` 与 `use_weighted_sampler/sampler_power`。
@@ -91,7 +106,7 @@
 - [x] E01：运行时覆盖基础设施完成，测试通过。
 - [x] E01-SMOKE：短训链路验证完成。
 - [x] E02：已完成（`E02-T1/T2/T3`），结论为“仅靠收敛窗口调整不足以达成目标”。
-- [ ] E03：待执行。
+- [x] E03：已完成（`E03-T1/T2/T3`），结论为“正则化单变量调整未达突破条件”。
 - [ ] E04：待执行。
 - [ ] E05：待执行。
 - [ ] E06：待执行。
