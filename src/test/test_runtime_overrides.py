@@ -10,6 +10,7 @@ sys.path.insert(0, PROJECT_ROOT)
 
 import src.config as cfg
 from src.model import runtime_overrides
+from src.model.model_lstm import get_model
 
 
 class TestRuntimeOverrides(unittest.TestCase):
@@ -55,6 +56,15 @@ class TestRuntimeOverrides(unittest.TestCase):
             runtime_overrides.apply_runtime_overrides(dropout=1.2)
 
         self.assertEqual(cfg.MODEL.dropout, original_dropout)
+
+    def test_runtime_dropout_override_applies_to_new_model(self):
+        runtime_overrides.apply_runtime_overrides(dropout=0.28)
+
+        model = get_model(use_attention=True)
+
+        self.assertAlmostEqual(model.dropout_fc.p, 0.28)
+        expected_lstm_dropout = 0.28 if cfg.MODEL.num_layers > 1 else 0.0
+        self.assertAlmostEqual(model.lstm.dropout, expected_lstm_dropout)
 
 
 if __name__ == "__main__":

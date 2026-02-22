@@ -260,7 +260,7 @@ def build_dummy_batch_for_smoke(
     return dummy_input, dummy_lengths
 
 
-def get_model(use_attention=cfg.MODEL.use_attention):
+def get_model(use_attention=None):
     """
     根据配置返回相应的模型实例。
 
@@ -270,10 +270,21 @@ def get_model(use_attention=cfg.MODEL.use_attention):
     Returns:
         nn.Module: BiLSTMAttention 或 BiLSTM 模型实例。
     """
+    if use_attention is None:
+        use_attention = cfg.MODEL.use_attention
+
+    model_kwargs = {
+        "input_size": cfg.SEQUENCE.input_size,
+        "hidden_size": cfg.MODEL.hidden_size,
+        "num_layers": cfg.MODEL.num_layers,
+        "num_classes": cfg.SEQUENCE.num_classes,
+        "dropout": cfg.MODEL.dropout,
+    }
+
     if use_attention:
-        return BiLSTMAttention()
-    else:
-        return BiLSTM()
+        return BiLSTMAttention(attention_dim=cfg.MODEL.attention_dim, **model_kwargs)
+
+    return BiLSTM(**model_kwargs)
 
 
 if __name__ == "__main__":
