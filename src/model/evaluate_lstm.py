@@ -172,7 +172,7 @@ def evaluate_model(
             all_preds,
             target_names=target_names,
             digits=4,
-            zero_division="0",
+            zero_division=0.0,
             output_dict=False,
         )
         if actual_verbose:
