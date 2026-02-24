@@ -210,6 +210,7 @@ class AugmentationConfig:
 
 @dataclass(frozen=True)
 class TrainingConfig:
+    # ==================== 基础训练参数 ====================
     # 单卡实际 batch 大小
     batch_size: int
     # 初始学习率
@@ -222,18 +223,24 @@ class TrainingConfig:
     device: str
     # 全局随机种子
     seed: int
+
+    # ==================== 可复现性配置 ====================
     # 是否启用 cudnn 确定性模式（提升可复现性）
     deterministic: bool
     # 是否启用 cudnn benchmark（提升速度但降低可复现性）
     cudnn_benchmark: bool
     # 是否强制使用确定性算子（可能影响性能，必要时可关闭）
     use_deterministic_algorithms: bool
+
+    # ==================== 保存与梯度配置 ====================
     # 模型定期保存间隔
     save_every_n_epochs: int
     # 梯度裁剪阈值（<=0 表示关闭）
     grad_clip_max_norm: float
     # 梯度累积步数（等效 batch 放大）
     grad_accum_steps: int
+
+    # ==================== 学习率调度器 ====================
     # 学习率调度器类型（"plateau" 或 "cosine_warm"）
     scheduler_type: str
     # ReduceLROnPlateau 衰减因子
@@ -246,6 +253,8 @@ class TrainingConfig:
     cosine_T0: int
     # CosineAnnealingWarmRestarts: 周期倍增因子
     cosine_T_mult: int
+
+    # ==================== 早停配置 ====================
     # 是否启用早停
     early_stopping_enabled: bool
     # 早停耐心轮数
@@ -254,22 +263,47 @@ class TrainingConfig:
     early_stopping_metric: str
     # 早停最小改进阈值
     early_stopping_min_delta: float
+
+    # ==================== 采样与加载配置 ====================
     # 是否启用类别均衡采样
     use_weighted_sampler: bool
     # 采样权重指数（1=逆频率）
     sampler_power: float
     # DataLoader worker 数
     dataloader_num_workers: int
+
+    # ==================== EMA 配置 ====================
     # 是否启用参数指数滑动平均（EMA）
     use_ema: bool
     # EMA 衰减系数
     ema_decay: float
     # EMA 开始生效的 epoch（1-based）
     ema_start_epoch: int
-    # 验证阶段是否启用水平翻转 TTA
-    eval_use_tta_hflip: bool
+
+    # ==================== 数据增强配置 ====================
     # Sequence-level Mixup alpha（<=0 表示关闭）
     mixup_alpha: float
+
+
+@dataclass(frozen=True)
+class EvaluationConfig:
+    """评估配置：统一管理模型评估相关参数"""
+
+    # ==================== 模型路径配置 ====================
+    # 当前评估模型路径（可通过修改此值切换不同模型）
+    model_path: str
+    # 集成评估模型路径列表（为空时使用单模型评估）
+    ensemble_model_paths: tuple[str, ...]
+
+    # ==================== TTA 配置 ====================
+    # 是否启用水平翻转 TTA
+    use_tta_hflip: bool
+
+    # ==================== 评估参数 ====================
+    # 评估时是否输出详细分类报告
+    verbose_report: bool
+    # 是否保存评估报告到日志
+    save_report: bool
 
 
 @dataclass(frozen=True)
@@ -458,36 +492,55 @@ AUGMENTATION = AugmentationConfig(
 
 
 TRAINING = TrainingConfig(
+    # ==================== 基础训练参数 ====================
     batch_size=4,  # 单步 batch
     learning_rate=8e-4,  # 初始学习率
     weight_decay=4e-4,  # L2 正则
     num_epochs=600,  # 最大轮数
     device="cuda",  # 期望设备
     seed=42,  # 随机种子
+    # ==================== 可复现性配置 ====================
     deterministic=True,  # 启用确定性模式，便于复现实验
     cudnn_benchmark=False,  # 关闭 benchmark，避免引入非确定性
     use_deterministic_algorithms=False,  # 默认不强制全部算子确定性
+    # ==================== 保存与梯度配置 ====================
     save_every_n_epochs=5,  # 定期保存间隔
     grad_clip_max_norm=1.0,  # 梯度裁剪
     grad_accum_steps=4,  # 梯度累积步数
-    scheduler_type="cosine_warm",  # 实验2: CosineAnnealingWarmRestarts（基线为 "plateau"）
+    # ==================== 学习率调度器 ====================
+    scheduler_type="cosine_warm",  # CosineAnnealingWarmRestarts（基线为 "plateau"）
     scheduler_factor=0.6,  # 学习率衰减比例（仅 plateau 模式使用）
     scheduler_patience=12,  # 学习率调度耐心（仅 plateau 模式使用）
     scheduler_min_lr=3e-6,  # 最小学习率
-    cosine_T0=30,  # 实验2: 初始重启周期30个epoch
-    cosine_T_mult=2,  # 实验2: 每次重启周期翻倍（30→60→120→...）
+    cosine_T0=30,  # 初始重启周期30个epoch
+    cosine_T_mult=2,  # 每次重启周期翻倍（30→60→120→...）
+    # ==================== 早停配置 ====================
     early_stopping_enabled=True,  # 启用早停
     early_stopping_patience=150,  # 早停耐心
     early_stopping_metric="val_acc",  # 早停监控指标
     early_stopping_min_delta=0.0,  # 最小改进阈值
-    use_weighted_sampler=False,  # 类别均衡采样（实验1证明无效，保持关闭）
+    # ==================== 采样与加载配置 ====================
+    use_weighted_sampler=False,  # 类别均衡采样（实验证明无效，保持关闭）
     sampler_power=0.7,  # 采样权重指数
     dataloader_num_workers=0,  # DataLoader worker
+    # ==================== EMA 配置 ====================
     use_ema=True,  # 启用 EMA 提升泛化稳定性
     ema_decay=0.999,  # EMA 衰减系数
     ema_start_epoch=6,  # 前几轮热身后启用 EMA
-    eval_use_tta_hflip=False,  # 默认关闭验证 TTA，避免干扰最佳模型选择
-    mixup_alpha=0.0,  # Mixup 关闭（Phase 3: Phase 1/2 实验证明 Mixup 对小数据集有害，彻底禁用）
+    # ==================== 数据增强配置 ====================
+    mixup_alpha=0.0,  # Mixup 关闭（实验证明对小数据集有害）
+)
+
+
+EVALUATION = EvaluationConfig(
+    # ==================== 模型路径配置 ====================
+    model_path=os.path.join(_PROJECT_ROOT, "src", "checkpoints", "best_model.pth"),  # 默认评估模型
+    ensemble_model_paths=(),  # 集成评估模型列表（为空则使用单模型）
+    # ==================== TTA 配置 ====================
+    use_tta_hflip=False,  # 关闭 TTA，保持评估稳定性
+    # ==================== 评估参数 ====================
+    verbose_report=True,  # 输出详细分类报告
+    save_report=True,  # 保存评估报告到日志
 )
 
 

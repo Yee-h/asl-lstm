@@ -93,7 +93,7 @@ def build_training_profile(overfit_debug: bool = False) -> dict[str, float | boo
         "use_ema": bool(cfg.TRAINING.use_ema),
         "ema_decay": float(cfg.TRAINING.ema_decay),
         "ema_start_epoch": int(cfg.TRAINING.ema_start_epoch),
-        "use_eval_tta_hflip": bool(cfg.TRAINING.eval_use_tta_hflip),
+        "use_eval_tta_hflip": bool(cfg.EVALUATION.use_tta_hflip),
         "mixup_alpha": float(cfg.TRAINING.mixup_alpha),
     }
 

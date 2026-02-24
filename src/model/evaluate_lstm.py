@@ -26,9 +26,20 @@ from src.model.dataloader import get_dataloaders
 from src.model.tta import build_hflip_tta_batch
 
 
-def evaluate_model(use_tta_hflip: bool | None = None, model_path_override: str | None = None):
+def evaluate_model(
+    use_tta_hflip: bool | None = None,
+    model_path_override: str | None = None,
+    verbose_report: bool | None = None,
+    save_report: bool | None = None,
+):
     """
     在测试数据集上评估保存的模型。
+
+    Args:
+        use_tta_hflip: 是否使用 TTA（None 则使用配置值）
+        model_path_override: 模型路径覆盖（None 则使用配置值）
+        verbose_report: 是否输出详细报告（None 则使用配置值）
+        save_report: 是否保存报告（None 则使用配置值）
     """
     # 1. 设置设备
     device = torch.device(
@@ -46,12 +57,14 @@ def evaluate_model(use_tta_hflip: bool | None = None, model_path_override: str |
     model_type = "BiLSTM+Attention" if cfg.MODEL.use_attention else "BiLSTM"
     print(f"模型架构: {model_type}")
 
-    # 4. 加载权重
-    model_path = cfg.PATHS.test_model_path if model_path_override is None else model_path_override
+    # 4. 加载权重（优先使用参数覆盖，其次使用配置）
+    model_path = (
+        model_path_override if model_path_override is not None else cfg.EVALUATION.model_path
+    )
 
     print(f"正在加载模型: {model_path}")
     if os.path.exists(model_path):
-        model.load_state_dict(torch.load(model_path, map_location=device))
+        model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
         print("模型权重加载成功。")
     else:
         print(f"错误: 未在 {model_path} 找到模型文件")
@@ -72,9 +85,9 @@ def evaluate_model(use_tta_hflip: bool | None = None, model_path_override: str |
     print("开始评估...")
     start_time = time.time()
 
-    if use_tta_hflip is None:
-        use_tta_hflip = bool(cfg.TRAINING.eval_use_tta_hflip)
-    print(f"评估 TTA: {'开启' if use_tta_hflip else '关闭'}")
+    # 使用参数或配置值
+    actual_use_tta = use_tta_hflip if use_tta_hflip is not None else cfg.EVALUATION.use_tta_hflip
+    print(f"评估 TTA: {'开启' if actual_use_tta else '关闭'}")
 
     with torch.no_grad():
         # 单条覆盖式进度条（评估阶段）
@@ -95,7 +108,7 @@ def evaluate_model(use_tta_hflip: bool | None = None, model_path_override: str |
 
             # 前向传播 (传递 lengths 参数)
             outputs = model(inputs, lengths)
-            if use_tta_hflip:
+            if actual_use_tta:
                 flipped_inputs = build_hflip_tta_batch(inputs)
                 flipped_outputs = model(flipped_inputs, lengths)
                 outputs = 0.5 * (outputs + flipped_outputs)
@@ -151,40 +164,47 @@ def evaluate_model(use_tta_hflip: bool | None = None, model_path_override: str |
         target_names = [id_to_label.get(i, str(i)) for i in range(cfg.SEQUENCE.num_classes)]
 
         # 分类报告
-        print("\n详细分类报告:")
+        actual_verbose = (
+            verbose_report if verbose_report is not None else cfg.EVALUATION.verbose_report
+        )
         report = classification_report(
             all_labels,
             all_preds,
             target_names=target_names,
             digits=4,
-            zero_division=0.0,
+            zero_division="0",
             output_dict=False,
         )
-        print(report)
+        if actual_verbose:
+            print("\n详细分类报告:")
+            print(report)
 
         # --- 保存报告到 logs 目录 ---
-        log_dir = cfg.PATHS.log_dir
-        os.makedirs(log_dir, exist_ok=True)
+        actual_save = save_report if save_report is not None else cfg.EVALUATION.save_report
+        if actual_save:
+            log_dir = cfg.PATHS.log_dir
+            os.makedirs(log_dir, exist_ok=True)
 
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        log_filename = f"evaluation_report_{timestamp}.txt"
-        log_path = os.path.join(log_dir, log_filename)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            log_filename = f"evaluation_report_{timestamp}.txt"
+            log_path = os.path.join(log_dir, log_filename)
 
-        with open(log_path, "w", encoding="utf-8") as f:
-            f.write("=" * 40 + "\n")
-            f.write("评估报告\n")
-            f.write("=" * 40 + "\n")
-            f.write(f"时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"模型: {model_path}\n")
-            f.write(f"测试集 Loss:     {avg_loss:.4f}\n")
-            f.write(f"测试集准确率: {accuracy:.2f}%\n")
-            f.write(f"样本总数: {total}\n")
-            f.write(f"耗时:    {duration:.2f}s\n")
-            f.write("-" * 40 + "\n")
-            f.write("详细分类报告:\n")
-            f.write(str(report))
+            with open(log_path, "w", encoding="utf-8") as f:
+                f.write("=" * 40 + "\n")
+                f.write("评估报告\n")
+                f.write("=" * 40 + "\n")
+                f.write(f"时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"模型: {model_path}\n")
+                f.write(f"测试集 Loss:     {avg_loss:.4f}\n")
+                f.write(f"测试集准确率: {accuracy:.2f}%\n")
+                f.write(f"样本总数: {total}\n")
+                f.write(f"耗时:    {duration:.2f}s\n")
+                f.write(f"TTA:     {'开启' if actual_use_tta else '关闭'}\n")
+                f.write("-" * 40 + "\n")
+                f.write("详细分类报告:\n")
+                f.write(str(report))
 
-        print(f"\n详细评估报告已保存至: {log_path}")
+            print(f"\n详细评估报告已保存至: {log_path}")
 
     except ImportError:
         print("\n注意: 未安装 'scikit-learn'。跳过详细分类报告。")
@@ -195,18 +215,66 @@ def evaluate_model(use_tta_hflip: bool | None = None, model_path_override: str |
 if __name__ == "__main__":
     _configure_windows_console()
 
-    parser = argparse.ArgumentParser(description="评估已训练模型")
-    parser.add_argument(
-        "--no-tta",
-        action="store_true",
-        help="关闭水平翻转 TTA（默认按 config 启用）",
+    parser = argparse.ArgumentParser(
+        description="评估已训练模型",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  # 使用配置中的默认模型评估
+  python evaluate_lstm.py
+
+  # 指定模型路径评估
+  python evaluate_lstm.py --model-path checkpoints/seed42/best_model.pth
+
+  # 关闭 TTA
+  python evaluate_lstm.py --no-tta
+
+  # 不输出详细报告
+  python evaluate_lstm.py --quiet
+        """,
     )
     parser.add_argument(
         "--model-path",
         type=str,
         default=None,
-        help="指定待评估模型路径（默认使用 config 中的 best_model）",
+        help=f"指定待评估模型路径（默认使用配置: {cfg.EVALUATION.model_path}）",
+    )
+    parser.add_argument(
+        "--no-tta",
+        action="store_true",
+        help="关闭水平翻转 TTA",
+    )
+    parser.add_argument(
+        "--tta",
+        action="store_true",
+        help="开启水平翻转 TTA",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="不输出详细分类报告",
+    )
+    parser.add_argument(
+        "--no-save",
+        action="store_true",
+        help="不保存评估报告到日志",
     )
     args = parser.parse_args()
 
-    evaluate_model(use_tta_hflip=not args.no_tta, model_path_override=args.model_path)
+    # 确定 TTA 设置
+    use_tta = None
+    if args.tta:
+        use_tta = True
+    elif args.no_tta:
+        use_tta = False
+
+    # 确定报告设置
+    verbose = False if args.quiet else None
+    save = False if args.no_save else None
+
+    evaluate_model(
+        use_tta_hflip=use_tta,
+        model_path_override=args.model_path,
+        verbose_report=verbose,
+        save_report=save,
+    )
