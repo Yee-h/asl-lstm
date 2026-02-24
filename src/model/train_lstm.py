@@ -137,16 +137,25 @@ def _evaluate_no_tta_val_acc(
     return validate(model, val_loader, criterion, device, use_tta_hflip=False)
 
 
-def train(overfit_debug: bool = False):
+def train(overfit_debug: bool = False, seed: int | None = None, run_tag: str | None = None):
     """
     模型训练主函数。
+
+    Args:
+        overfit_debug: 启用过拟合诊断模式
+        seed: 覆盖配置中的随机种子（用于多种子实验）
+        run_tag: 运行标签（用于区分不同种子训练的模型保存路径）
     """
+    actual_seed = seed if seed is not None else cfg.TRAINING.seed
     set_global_seed(
-        cfg.TRAINING.seed,
+        actual_seed,
         deterministic=cfg.TRAINING.deterministic,
         benchmark=cfg.TRAINING.cudnn_benchmark,
         use_deterministic_algorithms=cfg.TRAINING.use_deterministic_algorithms,
     )
+    print(f"随机种子: {actual_seed}")
+    if run_tag:
+        print(f"运行标签: {run_tag}")
 
     # --- 设置训练设备 ---
     # 优先使用 GPU，如果不可用或配置指定使用 CPU，则退回 CPU
@@ -241,7 +250,13 @@ def train(overfit_debug: bool = False):
             min_delta=cfg.TRAINING.early_stopping_min_delta,
         )
 
-    best_model_path = os.path.join(cfg.PATHS.model_save_dir, "best_model.pth")
+    # 根据 run_tag 设置模型保存目录
+    if run_tag:
+        model_save_dir = os.path.join(cfg.PATHS.model_save_dir, run_tag)
+        os.makedirs(model_save_dir, exist_ok=True)
+    else:
+        model_save_dir = cfg.PATHS.model_save_dir
+    best_model_path = os.path.join(model_save_dir, "best_model.pth")
     best_acc = -1.0
 
     # 记录训练过程中的 Loss 和 Accuracy
@@ -375,9 +390,7 @@ def train(overfit_debug: bool = False):
 
         # --- 每五轮保存一次模型 ---
         if (epoch + 1) % cfg.TRAINING.save_every_n_epochs == 0:
-            periodic_save_path = os.path.join(
-                cfg.PATHS.model_save_dir, f"lstm_epoch_{epoch + 1}.pth"
-            )
+            periodic_save_path = os.path.join(model_save_dir, f"lstm_epoch_{epoch + 1}.pth")
             torch.save(model.state_dict(), periodic_save_path)
             print(f"  定期保存模型至 {periodic_save_path}")
 
@@ -405,7 +418,7 @@ def train(overfit_debug: bool = False):
         plt.title("Accuracy Curve")
 
         plt.tight_layout()
-        plt.savefig(os.path.join(cfg.PATHS.model_save_dir, "training_metrics.png"))
+        plt.savefig(os.path.join(model_save_dir, "training_metrics.png"))
         plt.close()
         print("  训练曲线已更新")
 
@@ -438,10 +451,22 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="启用过拟合诊断模式（关闭增强与正则，验证模型可拟合能力）",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="覆盖配置中的随机种子（用于多种子实验）",
+    )
+    parser.add_argument(
+        "--run-tag",
+        type=str,
+        default=None,
+        help="运行标签（用于区分不同种子训练的模型保存路径，如 seed42）",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     _configure_windows_console()
     args = parse_args()
-    train(overfit_debug=args.overfit_debug)
+    train(overfit_debug=args.overfit_debug, seed=args.seed, run_tag=args.run_tag)
