@@ -1,247 +1,159 @@
 {
-  "project": "ASL-LSTM 项目完整修复",
-  "version": "1.0.0",
+  "project": "ASL-LSTM BiLSTM架构优化实验",
+  "version": "2.0.0",
+  "base_commit": "373874894cc7fc35f41f99737b1a698c150c702b",
+  "baseline_performance": {
+    "val_acc": 72.70,
+    "test_acc": 69.38,
+    "note": "实验2 CosineAnnealingWarmRestarts 最佳结果"
+  },
   "features": [
     {
-      "id": "T00",
-      "category": "文档基线",
+      "id": "E01",
+      "category": "P0-快速迭代",
       "priority": "P0",
-      "status": "completed",
-      "description": "建立 docs 文档基线并恢复单一事实来源",
+      "status": "pending",
+      "description": "多种子集成评估 - 使用softmax概率平均提升泛化稳定性",
       "steps": [
-        "创建 docs 目录和六个核心文档文件",
-        "补齐 Product-Spec 与变更记录",
-        "初始化任务清单与进度日志"
+        "运行 seed=42 训练并保存 best_model",
+        "运行 seed=123 训练并保存 best_model",
+        "运行 seed=456 训练并保存 best_model",
+        "运行 seed=789 训练并保存 best_model",
+        "运行 seed=2024 训练并保存 best_model",
+        "使用 ensemble_evaluate.py 进行集成评估",
+        "对比单模型与集成模型的测试集准确率"
       ],
-      "test_file_pattern": "N/A",
-      "dependencies": []
+      "test_file_pattern": "src/model/ensemble_evaluate.py",
+      "dependencies": [],
+      "expected_gain": "+0.5~1.5%"
     },
     {
-      "id": "T01",
-      "category": "阻断修复",
+      "id": "E02",
+      "category": "P0-快速迭代",
       "priority": "P0",
-      "status": "completed",
-      "description": "修复 transfer_hdf5_data.py 配置引用错误，恢复 get_data_dir 可用性",
+      "status": "pending",
+      "description": "检查点平均优化 - 改进检查点选择与平均策略",
       "steps": [
-        "替换旧 config 导入方式为 src.config",
-        "统一使用 cfg.PATHS.project_root 进行路径推导",
-        "验证 get_data_dir 调用可正常返回"
+        "分析训练日志，定位验证精度峰值区间",
+        "实现验证集导向的检查点筛选算法",
+        "对比简单平均 vs SWA式指数加权平均",
+        "测试不同 epoch 窗口大小的效果"
       ],
-      "test_file_pattern": "src/data_process/transfer_hdf5_data.py",
-      "dependencies": [
-        "T00"
-      ]
+      "test_file_pattern": "src/model/checkpoint_utils.py",
+      "dependencies": ["E01"],
+      "expected_gain": "+0.5~1%"
     },
     {
-      "id": "T02",
-      "category": "路径治理",
-      "priority": "P0",
-      "status": "completed",
-      "description": "清除硬编码绝对路径与旧项目名残留",
-      "steps": [
-        "为脚本统一添加 dataset-scale/split/data-root 参数",
-        "默认路径改由 cfg.PATHS.project_root 推导",
-        "完成命令行验证并记录日志"
-      ],
-      "test_file_pattern": "src/test/*.py",
-      "dependencies": [
-        "T01"
-      ]
-    },
-    {
-      "id": "T03",
-      "category": "契约统一",
-      "priority": "P0",
-      "status": "completed",
-      "description": "统一标签映射契约并收敛解析实现",
-      "steps": [
-        "修正 maplabels 生成逻辑",
-        "抽出统一解析函数供训练评估推理复用",
-        "新增契约测试覆盖合法与非法输入"
-      ],
-      "test_file_pattern": "src/test/test_label_map_contract.py",
-      "dependencies": [
-        "T02"
-      ]
-    },
-    {
-      "id": "T04",
-      "category": "公共模块解耦",
-      "priority": "P0",
-      "status": "completed",
-      "description": "抽离 src/core 公共模块，统一路径、标签与 HDF5 契约逻辑",
-      "steps": [
-        "新增 src/core/paths.py",
-        "新增 src/core/labels.py",
-        "新增 src/core/hdf5_schema.py",
-        "替换调用方重复实现并补充核心测试"
-      ],
-      "test_file_pattern": "src/test/test_core_modules.py",
-      "dependencies": [
-        "T03"
-      ]
-    },
-    {
-      "id": "T05",
-      "category": "文档对齐",
+      "id": "E03",
+      "category": "P1-架构微调",
       "priority": "P1",
-      "status": "completed",
-      "description": "确保 README 与 docs 文档描述和代码实现一致",
+      "status": "pending",
+      "description": "学习率 Warmup 策略 - 添加训练前期学习率预热",
       "steps": [
-        "清理 README 失效路径",
-        "补全 API 契约与参数文档",
-        "更新架构文档与变更记录"
+        "在 config.py 添加 warmup_epochs 和 warmup_start_lr 配置",
+        "修改 train_lstm.py 实现线性 warmup 调度器",
+        "测试 warmup=5 epochs 与 CosineAnnealingWarmRestarts 的配合",
+        "对比有无 warmup 的训练曲线与最终精度"
       ],
-      "test_file_pattern": "docs/*.md",
-      "dependencies": [
-        "T04"
-      ]
+      "test_file_pattern": "src/test/test_training_profile.py",
+      "dependencies": [],
+      "expected_gain": "+0.3~0.8%"
     },
     {
-      "id": "T06",
-      "category": "静态检查",
+      "id": "E04",
+      "category": "P1-架构微调",
       "priority": "P1",
-      "status": "completed",
-      "description": "接入 ruff 并清零静态检查告警",
+      "status": "pending",
+      "description": "LayerNorm 增强 - 在 LSTM 输出后添加层归一化",
       "steps": [
-        "在 pyproject.toml 增加 ruff 配置",
-        "执行 uv sync 与 ruff check",
-        "修复全部违规项并纳入门禁"
-      ],
-      "test_file_pattern": "src/**/*.py",
-      "dependencies": [
-        "T05"
-      ]
-    },
-    {
-      "id": "T07",
-      "category": "集成测试",
-      "priority": "P1",
-      "status": "completed",
-      "description": "补齐预处理、训练、推理三类 smoke 测试",
-      "steps": [
-        "实现预处理最小样本链路验证",
-        "实现训练最小 epoch 流程验证",
-        "实现无摄像头推理离线序列验证"
-      ],
-      "test_file_pattern": "src/test/test_*_smoke.py",
-      "dependencies": [
-        "T06"
-      ]
-    },
-    {
-      "id": "T08",
-      "category": "验收封版",
-      "priority": "P0",
-      "status": "completed",
-      "description": "完成最终全量验收并输出修复报告",
-      "steps": [
-        "执行 compileall/unittest/ruff 全量门禁",
-        "推进任务状态全部完成",
-        "更新进度日志与变更发布记录"
-      ],
-      "test_file_pattern": "src/test/test_*.py",
-      "dependencies": [
-        "T07"
-      ]
-    },
-    {
-      "id": "T09",
-      "category": "训练优化",
-      "priority": "P0",
-      "status": "completed",
-      "description": "修复模型自测维度错误并优化训练策略提升泛化表现",
-      "steps": [
-        "修复 model_lstm.py 自测输入维度与配置不一致问题",
-        "增加训练过拟合诊断模式并暴露可控开关",
-        "调整默认训练与增强超参数，降低欠拟合并提升验证稳定性"
+        "在 BiLSTMAttention 添加 LayerNorm 层",
+        "修改 forward 方法在 attention 前应用归一化",
+        "添加相应的单元测试",
+        "对比有无 LayerNorm 的训练稳定性与精度"
       ],
       "test_file_pattern": "src/test/test_model_input_contract.py",
-      "dependencies": [
-        "T08"
-      ]
+      "dependencies": [],
+      "expected_gain": "+0.5~1%"
     },
     {
-      "id": "T10",
-      "category": "泛化优化",
-      "priority": "P0",
-      "status": "completed",
-      "description": "引入 EMA 评估与保存路径，降低过拟合并提升验证稳定性",
+      "id": "E05",
+      "category": "P1-架构微调",
+      "priority": "P1",
+      "status": "pending",
+      "description": "时间掩码增强 - 添加 Temporal Masking 数据增强",
       "steps": [
-        "新增 ModelEMA 工具并补充单元测试",
-        "训练入口接入 EMA 策略并支持 overfit-debug 下自动关闭",
-        "补充文档与门禁验证，确保训练与测试链路稳定"
+        "在 dataloader.py 实现 temporal_mask 函数",
+        "添加配置参数控制掩码概率与最大长度",
+        "集成到训练数据增强流程",
+        "评估对过拟合的缓解效果"
       ],
-      "test_file_pattern": "src/test/test_training_utils.py",
-      "dependencies": [
-        "T09"
-      ]
+      "test_file_pattern": "src/test/test_augmentation_simple.py",
+      "dependencies": [],
+      "expected_gain": "+0.5~1%"
     },
     {
-      "id": "T11",
-      "category": "评估增强",
-      "priority": "P0",
-      "status": "completed",
-      "description": "新增 checkpoint 平均能力并支持指定模型评估，提升测试集稳定性",
+      "id": "E06",
+      "category": "P1-架构微调",
+      "priority": "P1",
+      "status": "pending",
+      "description": "多头注意力机制 - 升级单一注意力为多头注意力",
       "steps": [
-        "增加 checkpoint 权重平均工具模块与命令行脚本",
-        "评估入口支持 --model-path 与 --no-tta 参数",
-        "验证平均模型相对 best_model 的测试集指标提升"
-      ],
-      "test_file_pattern": "src/test/test_checkpoint_utils.py",
-      "dependencies": [
-        "T10"
-      ]
-    },
-    {
-      "id": "T12",
-      "category": "回归止损",
-      "priority": "P0",
-      "status": "completed",
-      "description": "修复验证指标退化并引入跨轮次冠军晋升门禁，确保 best_model 不回退",
-      "steps": [
-        "关闭默认验证 TTA，恢复稳定可比的验证口径",
-        "训练流程新增冠军晋升判定，候选不超过历史冠军则禁止覆盖 best_model",
-        "利用 checkpoint 平均回收高质量模型并提升当前 best_model 测试精度"
-      ],
-      "test_file_pattern": "src/test/test_training_utils.py",
-      "dependencies": [
-        "T11"
-      ]
-    },
-    {
-      "id": "T13",
-      "category": "结构调优",
-      "priority": "P0",
-      "status": "completed",
-      "description": "移除冠军晋升门禁并优化模型结构与训练参数以提升准确度上限",
-      "steps": [
-        "删除跨轮次冠军晋升逻辑，恢复单次训练 best_model 选择",
-        "为 BiLSTM+Attention 增加输入投影与 LayerNorm-MLP 分类头",
-        "重新调优模型与训练超参数并通过全量门禁"
+        "实现 MultiHeadAttention 类",
+        "修改 BiLSTMAttention 使用多头注意力",
+        "添加 num_heads 配置参数",
+        "对比单头与多头注意力的效果"
       ],
       "test_file_pattern": "src/test/test_model_input_contract.py",
-      "dependencies": [
-        "T12"
-      ]
+      "dependencies": ["E04"],
+      "expected_gain": "+1~2%"
     },
     {
-      "id": "T14",
-      "category": "回归恢复",
-      "priority": "P0",
-      "status": "in_progress",
-      "description": "收敛模型容量与训练采样策略，修复结构激进改动导致的精度回退风险",
+      "id": "E07",
+      "category": "P2-深度优化",
+      "priority": "P2",
+      "status": "pending",
+      "description": "BiLSTM 深度优化 - 增加层数/隐藏维度 + 残差连接",
       "steps": [
-        "已完成：新增参数预算回归测试，约束小样本场景模型规模上限（<=1,300,000）",
-        "已完成：回退到简化分类头（Attention + Dropout + Linear），并保留容量收敛超参数",
-        "已完成：完成 30 epoch A/B 快速复核，测试准确率由 44.57% 提升至 48.84%",
-        "待执行：运行长训并产出新的 best_model.pth（用户执行）",
-        "待执行：对长训 checkpoint 做区间平均并与 best_model 进行测试对比"
+        "评估 hidden_size=192, num_layers=3 的效果",
+        "实现 ResidualLSTM 带残差连接的 LSTM 层",
+        "对比不同容量配置的过拟合程度",
+        "确定最优容量与正则化组合"
       ],
       "test_file_pattern": "src/test/test_model_input_contract.py",
-      "dependencies": [
-        "T13"
-      ]
+      "dependencies": ["E06"],
+      "expected_gain": "+1~2%"
+    },
+    {
+      "id": "E08",
+      "category": "P2-深度优化",
+      "priority": "P2",
+      "status": "pending",
+      "description": "特征工程优化 - 评估二阶动态特征 (ddx, ddy)",
+      "steps": [
+        "在 config.py 开启 enable_accel_feature",
+        "评估 6 通道输入 (x, y, dx, dy, ddx, ddy) 的效果",
+        "对比 4 通道 vs 6 通道的精度与训练速度",
+        "决定是否启用加速度特征"
+      ],
+      "test_file_pattern": "src/test/test_dataloader_pipeline.py",
+      "dependencies": [],
+      "expected_gain": "+0.5~1%"
+    },
+    {
+      "id": "E09",
+      "category": "P2-深度优化",
+      "priority": "P2",
+      "status": "pending",
+      "description": "关键点分组嵌入 - 为不同身体部位添加可学习位置嵌入",
+      "steps": [
+        "实现 KeypointEmbedding 模块",
+        "定义左手/右手/身体/面部的分组嵌入",
+        "集成到模型输入层",
+        "评估对分类精度的提升"
+      ],
+      "test_file_pattern": "src/test/test_model_input_contract.py",
+      "dependencies": ["E08"],
+      "expected_gain": "+0.5~1%"
     }
   ]
 }
