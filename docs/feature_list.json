@@ -12,20 +12,30 @@
       "id": "E01",
       "category": "P0-快速迭代",
       "priority": "P0",
-      "status": "pending",
+      "status": "in_progress",
       "description": "多种子集成评估 - 使用softmax概率平均提升泛化稳定性",
       "steps": [
-        "运行 seed=42 训练并保存 best_model",
-        "运行 seed=123 训练并保存 best_model",
-        "运行 seed=456 训练并保存 best_model",
-        "运行 seed=789 训练并保存 best_model",
-        "运行 seed=2024 训练并保存 best_model",
-        "使用 ensemble_evaluate.py 进行集成评估",
-        "对比单模型与集成模型的测试集准确率"
+        "[DONE] 运行 seed=42 训练并保存 best_model (val=72.70%, test=66.28%)",
+        "[DONE] 运行 seed=123 训练并保存 best_model (val=73.29%, test=67.05%)",
+        "[DONE] 运行 seed=456 训练并保存 best_model (val=73.59%, test=69.38% ⭐)",
+        "[DONE] 运行 seed=789 训练并保存 best_model (val=71.81%, test=65.89%)",
+        "[DONE] 运行 seed=2024 训练并保存 best_model (val=72.70%, test=68.22%)",
+        "[DONE] 运行 seed=4096 训练并保存 best_model (val=73.29%, test=67.44%)",
+        "[TODO] 使用 ensemble_evaluate.py 进行集成评估",
+        "[TODO] 对比单模型与集成模型的测试集准确率"
       ],
       "test_file_pattern": "src/model/ensemble_evaluate.py",
       "dependencies": [],
-      "expected_gain": "+0.5~1.5%"
+      "expected_gain": "+0.5~1.5%",
+      "results": {
+        "seed42": {"val_acc": 72.70, "test_acc": 66.28},
+        "seed123": {"val_acc": 73.29, "test_acc": 67.05, "best_epoch": 394, "early_stop_epoch": 544},
+        "seed456": {"val_acc": 73.59, "test_acc": 69.38, "best_epoch": 314, "early_stop_epoch": 464, "best": true},
+        "seed789": {"val_acc": 71.81, "test_acc": 65.89, "best_epoch": 304, "early_stop_epoch": 454},
+        "seed2024": {"val_acc": 72.70, "test_acc": 68.22, "best_epoch": 284, "early_stop_epoch": 434}
+        ,
+        "seed4096": {"val_acc": 73.29, "test_acc": 67.44, "best_epoch": 300, "early_stop": true}
+      }
     },
     {
       "id": "E02",
