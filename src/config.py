@@ -176,6 +176,8 @@ class ModelConfig:
     use_attention: bool
     # 注意力中间维度
     attention_dim: int
+    # 是否在 LSTM 输出后添加 LayerNorm（E04）
+    use_layer_norm: bool
 
 
 @dataclass(frozen=True)
@@ -477,6 +479,7 @@ MODEL = ModelConfig(
     label_smoothing=0.03,  # 标签平滑（Phase 2: 回退至基线值）
     use_attention=True,  # 使用注意力
     attention_dim=32,  # 注意力维度
+    use_layer_norm=True,  # E04: 在 LSTM 输出后添加 LayerNorm
 )
 
 

@@ -69,6 +69,9 @@ class BiLSTMAttention(nn.Module):
     """
     双向 LSTM + Attention 网络模型，用于手语识别序列分类。
     通过注意力机制自动学习各帧的重要性权重，聚焦于关键动作帧。
+
+    可选：在 LSTM 输出后添加 LayerNorm（use_layer_norm=True）以稳定
+    各时间步的特征分布，缓解训练过程中的梯度波动（E04）。
     """
 
     def __init__(
@@ -79,6 +82,7 @@ class BiLSTMAttention(nn.Module):
         num_classes=cfg.SEQUENCE.num_classes,
         dropout=cfg.MODEL.dropout,
         attention_dim=cfg.MODEL.attention_dim,
+        use_layer_norm=cfg.MODEL.use_layer_norm,
     ):
         """
         初始化模型层。
@@ -90,6 +94,7 @@ class BiLSTMAttention(nn.Module):
             num_classes (int): 分类任务的类别总数。
             dropout (float): Dropout 概率，用于防止过拟合。
             attention_dim (int): 注意力机制的中间维度。
+            use_layer_norm (bool): 是否在 LSTM 输出后添加 LayerNorm。
         """
         super(BiLSTMAttention, self).__init__()
         self.hidden_size = hidden_size
@@ -108,6 +113,11 @@ class BiLSTMAttention(nn.Module):
 
         # LSTM 输出维度：双向则为 hidden_size * 2
         lstm_output_dim = hidden_size * 2 if self.bidirectional else hidden_size
+
+        # E04: LayerNorm — 对 LSTM 各时间步输出做层归一化，
+        # 稳定特征分布，减少 attention 前的数值尺度差异
+        self.use_layer_norm = use_layer_norm
+        self.layer_norm = nn.LayerNorm(lstm_output_dim) if use_layer_norm else None
 
         # 注意力层
         self.attention = Attention(lstm_output_dim, attention_dim)
@@ -148,11 +158,15 @@ class BiLSTMAttention(nn.Module):
             x.device
         )
 
-        # 5. Attention 计算
+        # 5. E04: LayerNorm（可选）— 对各时间步特征做层归一化
+        if self.layer_norm is not None:
+            lstm_output = self.layer_norm(lstm_output)
+
+        # 6. Attention 计算
         # context: (batch, hidden_dim)
         context, attention_weights = self.attention(lstm_output, mask)
 
-        # 6. 分类
+        # 7. 分类
         out = self.dropout_fc(context)
         out = self.fc(out)
 
@@ -185,6 +199,10 @@ class BiLSTMAttention(nn.Module):
         mask = torch.arange(seq_len, device=x.device).unsqueeze(0) < lengths.unsqueeze(1).to(
             x.device
         )
+
+        # E04: LayerNorm（可选）
+        if self.layer_norm is not None:
+            lstm_output = self.layer_norm(lstm_output)
 
         context, attention_weights = self.attention(lstm_output, mask)
 

@@ -215,6 +215,7 @@ def train(overfit_debug: bool = False, seed: int | None = None, run_tag: str | N
 
     # 学习率调度器：根据配置选择 ReduceLROnPlateau 或 CosineAnnealingWarmRestarts
     scheduler = None
+    warmup_scheduler = None
     scheduler_type = (
         cfg.TRAINING.scheduler_type if bool(training_profile["use_val_scheduler"]) else None
     )
@@ -239,6 +240,21 @@ def train(overfit_debug: bool = False, seed: int | None = None, run_tag: str | N
     elif scheduler_type is not None:
         raise ValueError(
             f"未知的学习率调度器类型: {scheduler_type!r}（支持 'plateau' 或 'cosine_warm'）"
+        )
+
+    # LR Warmup: 前 N 个 epoch 线性增长学习率
+    warmup_epochs = cfg.TRAINING.warmup_epochs
+    if warmup_epochs > 0 and scheduler is not None:
+        warmup_start_factor = cfg.TRAINING.warmup_start_lr / cfg.TRAINING.learning_rate
+        warmup_scheduler = optim.lr_scheduler.LinearLR(
+            optimizer,
+            start_factor=warmup_start_factor,
+            end_factor=1.0,
+            total_iters=warmup_epochs,
+        )
+        print(
+            f"LR Warmup: {cfg.TRAINING.warmup_start_lr:.1e} -> {cfg.TRAINING.learning_rate:.1e} "
+            f"({warmup_epochs} epochs)"
         )
 
     early_stopper = None
@@ -423,11 +439,16 @@ def train(overfit_debug: bool = False, seed: int | None = None, run_tag: str | N
         print("  训练曲线已更新")
 
         # --- 更新学习率 ---
-        if scheduler is not None:
+        if warmup_scheduler is not None and (epoch + 1) <= warmup_epochs:
+            # Warmup 阶段：线性增长学习率
+            warmup_scheduler.step()
+        elif scheduler is not None:
             if scheduler_type == "plateau":
                 scheduler.step(val_loss)  # type: ignore[arg-type]  # ReduceLROnPlateau: 基于验证集 Loss
             else:
-                scheduler.step(epoch + 1)  # type: ignore[arg-type]  # CosineAnnealing: 基于 epoch 计数
+                # CosineAnnealing: 传入扣除 warmup 后的 epoch 计数
+                effective_epoch = (epoch + 1) - warmup_epochs if warmup_epochs > 0 else (epoch + 1)
+                scheduler.step(effective_epoch)  # type: ignore[arg-type]
         current_lr = optimizer.param_groups[0]["lr"]
         print(f"  当前学习率: {current_lr:.6f}")
 

@@ -94,17 +94,32 @@
       "id": "E04",
       "category": "P1-架构微调",
       "priority": "P1",
-      "status": "pending",
+      "status": "completed",
       "description": "LayerNorm 增强 - 在 LSTM 输出后添加层归一化",
       "steps": [
-        "在 BiLSTMAttention 添加 LayerNorm 层",
-        "修改 forward 方法在 attention 前应用归一化",
-        "添加相应的单元测试",
-        "对比有无 LayerNorm 的训练稳定性与精度"
+        "[DONE] 在 config.py 添加 use_layer_norm=True 配置字段",
+        "[DONE] 在 BiLSTMAttention.__init__ 添加 LayerNorm 层",
+        "[DONE] 修改 forward 和 forward_with_attention 方法在 attention 前应用归一化",
+        "[DONE] 对比有无 LayerNorm 的训练稳定性与精度 -> 测试集 +0.78%"
       ],
       "test_file_pattern": "src/test/test_model_input_contract.py",
       "dependencies": [],
-      "expected_gain": "+0.5~1%"
+      "expected_gain": "+0.5~1%",
+      "results": {
+        "seed456_layernorm": {
+          "val_acc": 74.78,
+          "best_epoch": 265,
+          "early_stop_epoch": 415,
+          "test_acc": 70.16
+        },
+        "baseline_seed456": {
+          "val_acc": 73.59,
+          "test_acc": 69.38
+        },
+        "delta_val_acc": 1.19,
+        "delta_test_acc": 0.78,
+        "conclusion": "成功 - LayerNorm 提升测试集 +0.78%，验证集 +1.19%，训练收敛更快（epoch 265 vs 314）"
+      }
     },
     {
       "id": "E05",

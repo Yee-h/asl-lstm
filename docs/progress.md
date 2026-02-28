@@ -35,7 +35,7 @@
 #### 第二周：架构微调（目标 test_acc 73%+）
 | 任务 | 状态 | 预期提升 |
 |------|------|----------|
-| E04: LayerNorm 增强 | pending | +0.5~1% |
+    | E04: LayerNorm 增强 | ✅ 完成 | **+0.78%** (实际) |
 | E05: 时间掩码增强 | pending | +0.5~1% |
 | E06: 多头注意力 | pending | +1~2% |
 
@@ -250,3 +250,36 @@ epoch 检查点的验证精度 (max 72.11%) 显著低于 EMA 模型 (73.59%)，
 
 ### 已知失败方法更新
 - ❌ LR Warmup（导致测试集 -3.49%，调度器周期偏移+小数据集过拟合）
+
+---
+
+## [2026-02-28] E04 LayerNorm 增强
+
+### 实验目标
+在 BiLSTMAttention 模型的 LSTM 输出后添加 LayerNorm，改善训练稳定性并提升泛化能力。
+
+### 配置变更
+- `src/config.py`：`ModelConfig` 新增 `use_layer_norm: bool = True`
+- `src/model/model_lstm.py`：
+  - `BiLSTMAttention.__init__` 新增 `use_layer_norm` 参数
+  - 添加 `self.layer_norm = nn.LayerNorm(lstm_output_dim)` 层
+  - `forward` 和 `forward_with_attention` 方法在 LSTM unpack 后、attention 前插入 LayerNorm
+
+### 训练结果（seed456_layernorm）
+
+| 指标 | 本次（有LayerNorm） | 对比基线（seed456，无LayerNorm） |
+|------|-------------------|--------------------------------|
+| 验证集最佳 | **74.78%** | 73.59% |
+| 最佳验证集 Epoch | 265 | 314 |
+| 早停 Epoch | 415 | 464 |
+| **测试集** | **70.16%** | **69.38%** |
+| 测试集变化 | | **+0.78%** |
+
+### 结论
+- **成功** - LayerNorm 使验证集提升 +1.19%（73.59% → 74.78%），测试集提升 +0.78%（69.38% → 70.16%）
+- 模型收敛更快（最佳 epoch 265 vs 314），说明 LayerNorm 改善了训练稳定性
+- 测试集增益（+0.78%）低于验证集增益（+1.19%），仍有一定过拟合，但总体有效
+- **后续**：LayerNorm 将作为默认配置保留（`use_layer_norm=True`），后续实验在此基础上叠加
+
+### 下一步
+- 执行 E05（时间掩码增强），在 LayerNorm 基础上进一步提升泛化
