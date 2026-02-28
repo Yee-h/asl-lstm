@@ -47,13 +47,13 @@
       "id": "E02",
       "category": "P0-快速迭代",
       "priority": "P0",
-      "status": "pending",
+      "status": "completed",
       "description": "检查点平均优化 - 改进检查点选择与平均策略",
       "steps": [
-        "分析训练日志，定位验证精度峰值区间",
-        "实现验证集导向的检查点筛选算法",
-        "对比简单平均 vs SWA式指数加权平均",
-        "测试不同 epoch 窗口大小的效果"
+        "[DONE] 分析训练日志，定位验证精度峰值区间",
+        "[DONE] 实现验证集导向的检查点筛选算法 (checkpoint_avg_experiment.py)",
+        "[DONE] 对比简单平均 vs EMA best_model -> 结论: EMA已涵盖,无增益",
+        "[SKIP] 测试不同 epoch 窗口大小 -> 不适用(EMA已优于检查点平均)"
       ],
       "test_file_pattern": "src/model/checkpoint_utils.py",
       "dependencies": ["E01"],
@@ -63,17 +63,32 @@
       "id": "E03",
       "category": "P1-架构微调",
       "priority": "P1",
-      "status": "pending",
+      "status": "completed",
       "description": "学习率 Warmup 策略 - 添加训练前期学习率预热",
       "steps": [
-        "在 config.py 添加 warmup_epochs 和 warmup_start_lr 配置",
-        "修改 train_lstm.py 实现线性 warmup 调度器",
-        "测试 warmup=5 epochs 与 CosineAnnealingWarmRestarts 的配合",
-        "对比有无 warmup 的训练曲线与最终精度"
+        "[DONE] 在 config.py 添加 warmup_epochs=5 和 warmup_start_lr=1e-5 配置",
+        "[DONE] 修改 train_lstm.py 实现线性 warmup 调度器（LinearLR → CosineAnnealingWarmRestarts）",
+        "[DONE] 测试 warmup=5 epochs 配置训练（seed456_warmup）",
+        "[DONE] 对比有无 warmup 的测试集精度 -> 结论: 有害，测试集 -3.49%",
+        "[DONE] 将 warmup_epochs 默认值回滚为 0，关闭 warmup 功能"
       ],
       "test_file_pattern": "src/test/test_training_profile.py",
       "dependencies": [],
-      "expected_gain": "+0.3~0.8%"
+      "expected_gain": "+0.3~0.8%",
+      "results": {
+        "seed456_warmup": {
+          "val_acc": 73.59,
+          "best_epoch": 357,
+          "early_stop": true,
+          "test_acc": 65.89
+        },
+        "baseline_seed456": {
+          "val_acc": 73.59,
+          "test_acc": 69.38
+        },
+        "delta_test_acc": -3.49,
+        "conclusion": "失败 - LR Warmup 对本项目有害，调度器周期偏移+小数据集过拟合导致测试集大幅下降"
+      }
     },
     {
       "id": "E04",

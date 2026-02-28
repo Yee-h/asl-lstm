@@ -254,6 +254,12 @@ class TrainingConfig:
     # CosineAnnealingWarmRestarts: 周期倍增因子
     cosine_T_mult: int
 
+    # ==================== 学习率 Warmup ====================
+    # Warmup 轮数（0 表示关闭）
+    warmup_epochs: int
+    # Warmup 起始学习率
+    warmup_start_lr: float
+
     # ==================== 早停配置 ====================
     # 是否启用早停
     early_stopping_enabled: bool
@@ -514,6 +520,9 @@ TRAINING = TrainingConfig(
     scheduler_min_lr=3e-6,  # 最小学习率
     cosine_T0=30,  # 初始重启周期30个epoch
     cosine_T_mult=2,  # 每次重启周期翻倍（30→60→120→...）
+    # ==================== 学习率 Warmup ====================
+    warmup_epochs=0,  # 前N轮线性预热（0=关闭）; E03实验证明warmup有害，默认关闭
+    warmup_start_lr=1e-5,  # 预热起始学习率
     # ==================== 早停配置 ====================
     early_stopping_enabled=True,  # 启用早停
     early_stopping_patience=150,  # 早停耐心
