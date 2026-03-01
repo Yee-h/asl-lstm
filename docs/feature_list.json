@@ -125,17 +125,33 @@
       "id": "E05",
       "category": "P1-架构微调",
       "priority": "P1",
-      "status": "pending",
+      "status": "completed",
       "description": "时间掩码增强 - 添加 Temporal Masking 数据增强",
       "steps": [
-        "在 dataloader.py 实现 temporal_mask 函数",
-        "添加配置参数控制掩码概率与最大长度",
-        "集成到训练数据增强流程",
-        "评估对过拟合的缓解效果"
+        "[DONE] 在 dataloader.py 实现 _temporal_mask 方法（随机掩码连续帧段置零）",
+        "[DONE] 在 config.py 新增 temporal_mask_prob=0.30、temporal_mask_max_ratio=0.15 参数",
+        "[DONE] 在 _apply_augmentation 中以 30% 概率触发时间掩码",
+        "[DONE] 完整训练 seed456_temporal_mask（414 epochs 早停），验证集 76.85%，测试集 74.42%"
       ],
       "test_file_pattern": "src/test/test_augmentation_simple.py",
       "dependencies": [],
-      "expected_gain": "+0.5~1%"
+      "expected_gain": "+0.5~1%",
+      "results": {
+        "seed456_temporal_mask": {
+          "val_acc": 76.85,
+          "best_epoch": 264,
+          "early_stop_epoch": 414,
+          "test_acc": 74.42
+        },
+        "baseline_seed456_layernorm": {
+          "val_acc": 74.78,
+          "test_acc": 70.16
+        },
+        "delta_val_acc": 2.07,
+        "delta_test_acc": 4.26,
+        "delta_over_original_baseline": 5.04,
+        "conclusion": "成功 - 时间掩码增强显著提升泛化，验证集 +2.07%，测试集 +4.26%，相对原始基线 +5.04%。测试集达 74.42%，已非常接近 75% 目标"
+      }
     },
     {
       "id": "E06",

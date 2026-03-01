@@ -208,6 +208,10 @@ class AugmentationConfig:
     frame_dropout_prob: float
     # 最大丢帧比例
     frame_dropout_max_ratio: float
+    # 时间掩码概率（E05）
+    temporal_mask_prob: float
+    # 时间掩码单段最大长度比例（E05）
+    temporal_mask_max_ratio: float
 
 
 @dataclass(frozen=True)
@@ -497,6 +501,8 @@ AUGMENTATION = AugmentationConfig(
     time_warp_max=1.10,  # 时间扭曲上限
     frame_dropout_prob=0.10,  # 丢帧概率
     frame_dropout_max_ratio=0.08,  # 最大丢帧比例
+    temporal_mask_prob=0.30,  # 时间掩码概率（E05）
+    temporal_mask_max_ratio=0.15,  # 时间掩码单段最大帧数比例（E05）
 )
 
 

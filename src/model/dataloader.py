@@ -405,6 +405,38 @@ class CSLDataset(Dataset):
 
         return dropped, dropped_mask
 
+    def _temporal_mask(
+        self,
+        data: np.ndarray,
+        valid_len: int,
+        mask: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        """时间掩码增强（E05）：随机将一段连续帧置零，迫使模型学习上下文依赖。
+
+        策略：随机选取一段起点，长度为 [1, max_mask_len] 个帧，对该段所有特征置零。
+        不修改 valid_len，保持序列结构不变。
+        """
+        if valid_len < 4:
+            return data, mask
+        if np.random.random() >= cfg.AUGMENTATION.temporal_mask_prob:
+            return data, mask
+
+        max_mask_len = max(1, int(valid_len * cfg.AUGMENTATION.temporal_mask_max_ratio))
+        mask_len = np.random.randint(1, max_mask_len + 1)
+        # 起点：[0, valid_len - mask_len)，确保掩码段完全在有效区间内
+        start = np.random.randint(0, valid_len - mask_len + 1)
+
+        masked = data.copy()
+        masked[start : start + mask_len] = 0.0
+
+        if mask is not None:
+            masked_mask = np.asarray(mask, dtype=np.uint8).copy()
+            if masked_mask.ndim == 2 and masked_mask.shape[1] == data.shape[2]:
+                masked_mask[start : start + mask_len] = 0
+                return masked, masked_mask
+
+        return masked, mask
+
     def _apply_augmentation(
         self,
         data: np.ndarray,
@@ -436,6 +468,7 @@ class CSLDataset(Dataset):
 
         work, work_mask = self._random_time_warp(work, valid_len, mask=work_mask)
         work, work_mask = self._random_frame_dropout(work, valid_len, mask=work_mask)
+        work, work_mask = self._temporal_mask(work, valid_len, mask=work_mask)
 
         if work_mask is None:
             work_mask = ((work[:, 0, :] != 0) | (work[:, 1, :] != 0)).astype(np.uint8)
