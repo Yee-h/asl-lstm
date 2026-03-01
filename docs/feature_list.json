@@ -157,17 +157,34 @@
       "id": "E06",
       "category": "P1-架构微调",
       "priority": "P1",
-      "status": "pending",
+      "status": "completed",
       "description": "多头注意力机制 - 升级单一注意力为多头注意力",
       "steps": [
-        "实现 MultiHeadAttention 类",
-        "修改 BiLSTMAttention 使用多头注意力",
-        "添加 num_heads 配置参数",
-        "对比单头与多头注意力的效果"
+        "[DONE] 实现 MultiHeadAttention 类（model_lstm.py）",
+        "[DONE] 修改 BiLSTMAttention 支持 num_heads 参数（num_heads=1 退化为原始加性注意力）",
+        "[DONE] 在 config.py 添加 num_heads=4 配置参数",
+        "[DONE] 训练 seed456_multihead（465 epochs 早停），val_acc=75.07%，test_acc=72.09%",
+        "[DONE] 对比结果：test_acc 72.09% < E05 的 74.42%，失败，不采纳",
+        "[DONE] 将 num_heads 回退为 1，恢复 E05 最优配置"
       ],
       "test_file_pattern": "src/test/test_model_input_contract.py",
       "dependencies": ["E04"],
-      "expected_gain": "+1~2%"
+      "expected_gain": "+1~2%",
+      "results": {
+        "seed456_multihead": {
+          "val_acc": 75.07,
+          "best_epoch": 315,
+          "early_stop_epoch": 465,
+          "test_acc": 72.09
+        },
+        "baseline_e05": {
+          "val_acc": 76.85,
+          "test_acc": 74.42
+        },
+        "delta_val_acc": -1.78,
+        "delta_test_acc": -2.33,
+        "conclusion": "失败 - num_heads=4 引入额外 262,144 参数加重过拟合；小数据场景（1442样本）不适合多头注意力。测试集下降 -2.33%，不采纳，回退 num_heads=1"
+      }
     },
     {
       "id": "E07",

@@ -13,6 +13,7 @@ class Attention(nn.Module):
     """
     加性注意力机制 (Additive Attention / Bahdanau Attention)。
     用于对 LSTM 各时间步的输出进行加权求和，聚焦于关键帧。
+    保留此类以便 num_heads=1 时的退化兼容或对比实验。
     """
 
     def __init__(self, hidden_dim, attention_dim=cfg.MODEL.attention_dim):
@@ -65,13 +66,111 @@ class Attention(nn.Module):
         return context, attention_weights
 
 
+class MultiHeadAttention(nn.Module):
+    """
+    多头缩放点积注意力 (Multi-Head Scaled Dot-Product Attention)。
+    E06 实验：将单头加性注意力替换为多头注意力，让模型同时关注
+    序列中不同子空间的信息，提升对关键帧的辨别能力。
+
+    设计约定：
+    - Q/K/V 均来自同一个 LSTM 输出（自注意力）
+    - 输出维度与输入 hidden_dim 保持一致，下游 fc 层无需改动
+    - 支持 padding mask，填充位置权重强制为 0
+    - 返回所有头的平均注意力权重，供可视化使用
+    """
+
+    def __init__(self, hidden_dim: int, num_heads: int):
+        """
+        Args:
+            hidden_dim (int): LSTM 输出维度（双向为 hidden_size * 2）。
+            num_heads (int): 注意力头数，要求 hidden_dim % num_heads == 0。
+        """
+        super(MultiHeadAttention, self).__init__()
+        assert hidden_dim % num_heads == 0, (
+            f"hidden_dim ({hidden_dim}) 必须能被 num_heads ({num_heads}) 整除"
+        )
+        self.hidden_dim = hidden_dim
+        self.num_heads = num_heads
+        self.head_dim = hidden_dim // num_heads  # 每头维度
+        self.scale = self.head_dim**-0.5  # 缩放因子 1/sqrt(head_dim)
+
+        # Q、K、V 的线性投影（合并所有头，一次矩阵乘完成）
+        self.q_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.k_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.v_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+
+        # 输出投影：将拼接后的多头结果映射回 hidden_dim
+        self.out_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+
+    def forward(self, lstm_output, mask=None):
+        """
+        Args:
+            lstm_output (torch.Tensor): (batch, seq_len, hidden_dim)
+            mask (torch.Tensor, optional): (batch, seq_len)，True=有效位置
+
+        Returns:
+            context (torch.Tensor): (batch, hidden_dim)  加权聚合后的表示
+            avg_attn_weights (torch.Tensor): (batch, seq_len)  各头平均注意力权重
+        """
+        batch, seq_len, _ = lstm_output.shape
+
+        # 1. 线性投影 -> (batch, seq_len, hidden_dim)
+        Q = self.q_proj(lstm_output)
+        K = self.k_proj(lstm_output)
+        V = self.v_proj(lstm_output)
+
+        # 2. 拆分多头 -> (batch, num_heads, seq_len, head_dim)
+        def split_heads(t):
+            return t.view(batch, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+        Q, K, V = split_heads(Q), split_heads(K), split_heads(V)
+
+        # 3. 缩放点积注意力分数 -> (batch, num_heads, seq_len, seq_len)
+        scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale
+
+        # 4. 应用 padding mask：填充列的分数设为 -inf
+        if mask is not None:
+            # mask: (batch, seq_len) -> (batch, 1, 1, seq_len) 广播到所有头和查询位置
+            key_mask = mask.unsqueeze(1).unsqueeze(2)  # (batch, 1, 1, seq_len)
+            scores = scores.masked_fill(~key_mask, float("-inf"))
+
+        # 5. Softmax 归一化 -> (batch, num_heads, seq_len, seq_len)
+        attn_weights = F.softmax(scores, dim=-1)
+
+        # 6. 加权求和 -> (batch, num_heads, seq_len, head_dim)
+        attended = torch.matmul(attn_weights, V)
+
+        # 7. 合并多头 -> (batch, seq_len, hidden_dim)
+        attended = attended.transpose(1, 2).contiguous().view(batch, seq_len, self.hidden_dim)
+
+        # 8. 输出投影
+        output = self.out_proj(attended)  # (batch, seq_len, hidden_dim)
+
+        # 9. 对 seq_len 维做全局平均池化，聚合成上下文向量
+        # 仅在有效位置做平均（padding 位置不参与）
+        if mask is not None:
+            # mask: (batch, seq_len) -> (batch, seq_len, 1)
+            valid_mask = mask.unsqueeze(-1).float()
+            # 有效帧求和 / 有效帧数量
+            context = (output * valid_mask).sum(dim=1) / valid_mask.sum(dim=1).clamp(min=1.0)
+        else:
+            context = output.mean(dim=1)  # (batch, hidden_dim)
+
+        # 10. 计算各头的平均注意力权重用于可视化
+        # attn_weights: (batch, num_heads, seq_len, seq_len)
+        # 对 query 维度取平均后再对头取平均 -> (batch, seq_len)
+        avg_attn_weights = attn_weights.mean(dim=1).mean(dim=1)  # (batch, seq_len)
+
+        return context, avg_attn_weights
+
+
 class BiLSTMAttention(nn.Module):
     """
     双向 LSTM + Attention 网络模型，用于手语识别序列分类。
-    通过注意力机制自动学习各帧的重要性权重，聚焦于关键动作帧。
 
-    可选：在 LSTM 输出后添加 LayerNorm（use_layer_norm=True）以稳定
-    各时间步的特征分布，缓解训练过程中的梯度波动（E04）。
+    E04：在 LSTM 输出后添加 LayerNorm，稳定特征分布。
+    E06：支持多头缩放点积注意力（num_heads > 1）或原始单头加性注意力（num_heads=1）。
+         通过 num_heads 参数控制，下游 fc 层维度保持不变。
     """
 
     def __init__(
@@ -83,6 +182,7 @@ class BiLSTMAttention(nn.Module):
         dropout=cfg.MODEL.dropout,
         attention_dim=cfg.MODEL.attention_dim,
         use_layer_norm=cfg.MODEL.use_layer_norm,
+        num_heads=cfg.MODEL.num_heads,
     ):
         """
         初始化模型层。
@@ -93,8 +193,9 @@ class BiLSTMAttention(nn.Module):
             num_layers (int): LSTM 的层数。
             num_classes (int): 分类任务的类别总数。
             dropout (float): Dropout 概率，用于防止过拟合。
-            attention_dim (int): 注意力机制的中间维度。
+            attention_dim (int): 单头加性注意力的中间维度（num_heads=1 时使用）。
             use_layer_norm (bool): 是否在 LSTM 输出后添加 LayerNorm。
+            num_heads (int): 多头注意力头数。1=单头加性注意力，>1=多头缩放点积注意力。
         """
         super(BiLSTMAttention, self).__init__()
         self.hidden_size = hidden_size
@@ -119,8 +220,14 @@ class BiLSTMAttention(nn.Module):
         self.use_layer_norm = use_layer_norm
         self.layer_norm = nn.LayerNorm(lstm_output_dim) if use_layer_norm else None
 
-        # 注意力层
-        self.attention = Attention(lstm_output_dim, attention_dim)
+        # E06: 注意力层选择
+        # num_heads > 1：多头缩放点积注意力（E06实验）
+        # num_heads == 1：退回原始单头加性注意力（对比 / 回退）
+        self.num_heads = num_heads
+        if num_heads > 1:
+            self.attention = MultiHeadAttention(lstm_output_dim, num_heads)
+        else:
+            self.attention = Attention(lstm_output_dim, attention_dim)
 
         self.dropout_fc = nn.Dropout(dropout)
         self.fc = nn.Linear(lstm_output_dim, num_classes)

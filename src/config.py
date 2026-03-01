@@ -178,6 +178,8 @@ class ModelConfig:
     attention_dim: int
     # 是否在 LSTM 输出后添加 LayerNorm（E04）
     use_layer_norm: bool
+    # 注意力头数（E06，1=单头退化为原始加性注意力行为，推荐4）
+    num_heads: int
 
 
 @dataclass(frozen=True)
@@ -482,8 +484,9 @@ MODEL = ModelConfig(
     dropout=0.35,  # Dropout（Phase 2: 回退至基线值，避免过度正则化）
     label_smoothing=0.03,  # 标签平滑（Phase 2: 回退至基线值）
     use_attention=True,  # 使用注意力
-    attention_dim=32,  # 注意力维度
+    attention_dim=32,  # 注意力维度（单头加性注意力时使用，多头时忽略）
     use_layer_norm=True,  # E04: 在 LSTM 输出后添加 LayerNorm
+    num_heads=1,  # 注意力头数（1=单头加性注意力，E06实验证明多头对小数据有害，回退为1）
 )
 
 
