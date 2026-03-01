@@ -190,17 +190,31 @@
       "id": "E07",
       "category": "P2-深度优化",
       "priority": "P2",
-      "status": "pending",
+      "status": "completed",
       "description": "BiLSTM 深度优化 - 增加层数/隐藏维度 + 残差连接",
       "steps": [
-        "评估 hidden_size=192, num_layers=3 的效果",
-        "实现 ResidualLSTM 带残差连接的 LSTM 层",
-        "对比不同容量配置的过拟合程度",
-        "确定最优容量与正则化组合"
+        "[DONE] E07a: 评估 hidden_size=192, dropout=0.40 的效果 -> 失败，test_acc=71.71%（-2.71% vs E05）",
+        "[SKIP] E07b: num_layers=3 -> 跳过，加深策略与加宽同理，参数量增加在小数据集仍会加重过拟合",
+        "[SKIP] ResidualLSTM 残差连接 -> 跳过，优先评估特征工程方向（E08）"
       ],
       "test_file_pattern": "src/test/test_model_input_contract.py",
       "dependencies": ["E06"],
-      "expected_gain": "+1~2%"
+      "expected_gain": "+1~2%",
+      "results": {
+        "seed456_bilstm192": {
+          "hidden_size": 192,
+          "dropout": 0.40,
+          "param_count": 2066852,
+          "early_stop_epoch": 540,
+          "test_acc": 71.71
+        },
+        "baseline_e05": {
+          "val_acc": 76.85,
+          "test_acc": 74.42
+        },
+        "delta_test_acc": -2.71,
+        "conclusion": "失败 - BiLSTM 加宽（hidden_size 192）参数量增加 85%，小数据集（1442样本）过拟合加重，测试集下降 -2.71%；加深（num_layers=3）预计同样失败，跳过；回退 hidden_size=128, dropout=0.35"
+      }
     },
     {
       "id": "E08",

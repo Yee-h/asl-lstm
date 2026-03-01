@@ -478,15 +478,15 @@ MEDIAPIPE = MediapipeConfig(
 
 
 MODEL = ModelConfig(
-    hidden_size=128,  # LSTM 隐藏维度（回归到小样本更稳的容量）
+    hidden_size=128,  # 恢复 E05 最优配置（E07a 加宽至192失败，过拟合加重）
     num_layers=2,  # LSTM 层数
     bidirectional=True,  # 双向 LSTM
-    dropout=0.35,  # Dropout（Phase 2: 回退至基线值，避免过度正则化）
-    label_smoothing=0.03,  # 标签平滑（Phase 2: 回退至基线值）
+    dropout=0.35,  # 恢复 E05 最优配置
+    label_smoothing=0.03,  # 标签平滑（保持基线值）
     use_attention=True,  # 使用注意力
-    attention_dim=32,  # 注意力维度（单头加性注意力时使用，多头时忽略）
+    attention_dim=32,  # 注意力维度（单头加性注意力）
     use_layer_norm=True,  # E04: 在 LSTM 输出后添加 LayerNorm
-    num_heads=1,  # 注意力头数（1=单头加性注意力，E06实验证明多头对小数据有害，回退为1）
+    num_heads=1,  # 单头加性注意力（E06实验证明多头对小数据有害）
 )
 
 
