@@ -220,17 +220,32 @@
       "id": "E08",
       "category": "P2-深度优化",
       "priority": "P2",
-      "status": "pending",
+      "status": "completed",
       "description": "特征工程优化 - 评估二阶动态特征 (ddx, ddy)",
       "steps": [
-        "在 config.py 开启 enable_accel_feature",
-        "评估 6 通道输入 (x, y, dx, dy, ddx, ddy) 的效果",
-        "对比 4 通道 vs 6 通道的精度与训练速度",
-        "决定是否启用加速度特征"
+        "[DONE] 在 config.py 开启 enable_accel_feature，切换 feature_stats_path 至 6ch 版本",
+        "[DONE] 预计算 6 通道统计量，保存 WLASL100_train_stats_6ch.json",
+        "[DONE] 训练 seed456_accel6ch（EarlyStopping 触发），input_size=810，参数量=1,392,292",
+        "[DONE] 评估测试集：test_acc=71.71%（-2.71% vs E05 74.42%），失败，不采纳",
+        "[DONE] 回退 config.py：enable_accel_feature=False，feature_stats_path → _train_stats.json，input_size=540"
       ],
       "test_file_pattern": "src/test/test_dataloader_pipeline.py",
       "dependencies": [],
-      "expected_gain": "+0.5~1%"
+      "expected_gain": "+0.5~1%",
+      "results": {
+        "seed456_accel6ch": {
+          "input_size": 810,
+          "channels": 6,
+          "param_count": 1392292,
+          "test_acc": 71.71
+        },
+        "baseline_e05": {
+          "val_acc": 76.85,
+          "test_acc": 74.42
+        },
+        "delta_test_acc": -2.71,
+        "conclusion": "失败 - 二阶加速度特征（ddx/ddy）反而降低了测试集精度（74.42% → 71.71%，-2.71%）。参数量增加约 25%（输入层加宽），可能引入噪声特征；ddx/ddy 为差分计算，对关键点抖动放大效应明显，噪声大于信号。不采纳，回退至 4 通道 E05 配置"
+      }
     },
     {
       "id": "E09",

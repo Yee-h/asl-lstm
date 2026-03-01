@@ -414,8 +414,8 @@ PATHS = PathsConfig(
 SEQUENCE = SequenceConfig(
     max_frames=90,  # 统一帧长
     num_landmarks=135,  # 关键点数量
-    enable_accel_feature=False,  # 先关闭 ddx/ddy，保持稳定
-    base_feature_channels=("x", "y", "dx", "dy"),  # 当前基础通道
+    enable_accel_feature=False,  # 恢复 E05 配置（E08 加速度特征实验失败）
+    base_feature_channels=("x", "y", "dx", "dy"),  # 4通道（E08 失败，回退）
 )
 
 
@@ -436,7 +436,7 @@ PREPROCESS = PreprocessConfig(
     enable_standardize=True,  # 启用标准化
     feature_stats_path=os.path.join(
         _processed_data_dir, f"WLASL{_DATASET_SCALE}_train_stats.json"
-    ),  # 训练统计量路径
+    ),  # 4通道统计量路径（E08 失败，回退至原始 4 通道）
     standardize_eps=1e-6,  # 标准化稳定项
     subset_json_map={
         100: os.path.join(PATHS.raw_data_dir, "WLASL100", "nslt_100.json"),  # WLASL100 子集 JSON
