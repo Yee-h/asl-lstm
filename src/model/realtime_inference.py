@@ -753,9 +753,9 @@ def on_mouse(event: int, x: int, y: int, flags: int, params: Any):
             params["show_skeleton"] = not params.get("show_skeleton", False)
             return
 
-    # 检测导入视频按钮（仅当未处于视频处理中时响应）
+    # 检测导入视频按钮
     import_rect = params.get("import_rect")
-    if import_rect and not params.get("importing", False):
+    if import_rect:
         x1, y1, x2, y2 = import_rect
         if x1 <= x <= x2 and y1 <= y <= y2:
             params["import_video"] = True
@@ -1217,7 +1217,6 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
         "show_skeleton": False,
         "mouse_pos": None,
         "import_video": False,  # 点击"导入视频"后置 True
-        "importing": False,  # 离线推理进行中时置 True（防止重复触发）
     }
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     cv2.setMouseCallback(window_name, on_mouse, mouse_state)
@@ -1248,18 +1247,6 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
     frame_buffer: Deque[np.ndarray] = deque(maxlen=cfg.SEQUENCE.max_frames)
     last_result: Tuple[str, float] | None = None
 
-    # 离线推理状态（跨线程共享，由子线程写入，主线程读取）
-    offline_state: Dict[str, Any] = {
-        "status": "",
-        "result": None,
-        "done": True,
-    }
-
-    # 离线推理完成后的结果（持久显示，直到下一次实时推理检测到手部才清除）
-    offline_result: Tuple[str, float] | None = None
-    # 是否处于"离线结果展示"模式（True时实时推理不覆盖结果）
-    offline_result_mode: bool = False
-
     print('\n实时推理已启动（4模型集成），按 "q" 退出。\n')
     start_time = time.time()
     frame_count = 0
@@ -1280,102 +1267,61 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
                 frame_count += 1
                 timestamp_ms = int(time.time() * 1000)
 
-                # ---- 处理"导入视频"按钮点击 ----
-                if mouse_state.get("import_video") and not mouse_state.get("importing"):
+                # ---- 处理"导入视频"按钮点击：进入独立离线推理界面 ----
+                if mouse_state.get("import_video"):
                     mouse_state["import_video"] = False
-                    mouse_state["importing"] = True
-                    # 清除上次离线结果，恢复实时推理（此次新导入完成前暂不显示旧结果）
-                    offline_result = None
-                    offline_result_mode = False
-                    offline_state["done"] = False
-                    offline_state["status"] = "请在弹出对话框中选择视频文件..."
-                    offline_state["result"] = None
-
-                    # 在主线程弹出文件对话框（tkinter 要求主线程）
-                    video_path = _open_file_dialog()
-
-                    if video_path:
-                        print(f"开始离线推理: {video_path}")
-                        # 启动后台线程处理视频，避免阻塞 UI
-                        t = threading.Thread(
-                            target=_run_offline_inference,
-                            args=(
-                                video_path,
-                                models,
-                                preprocess_helper,
-                                stats,
-                                device,
-                                id_to_label,
-                                offline_state,
-                            ),
-                            daemon=True,
-                        )
-                        t.start()
-                    else:
-                        # 用户取消文件选择
-                        offline_state["status"] = ""
-                        offline_state["done"] = True
-                        mouse_state["importing"] = False
-
-                # ---- 离线推理完成后同步状态 ----
-                if mouse_state.get("importing") and offline_state.get("done"):
-                    mouse_state["importing"] = False
-                    if offline_state.get("result"):
-                        offline_result = offline_state["result"]
-                        offline_result_mode = True  # 进入离线结果展示模式
-
-                # ---- 离线结果展示模式：锁定结果，完全跳过实时推理 ----
-                if offline_result_mode:
-                    keypoints = None
-                    last_result = offline_result
-                    status_text = "离线推理完成"
-
-                # ---- 实时推理逻辑（离线推理进行中或离线结果展示时跳过） ----
-                elif not mouse_state.get("importing"):
-                    keypoints, valid_mask, has_hands = extractor.extract_frame_optimized(
-                        frame, timestamp_ms
+                    win_h, win_w = frame.shape[:2]
+                    # 阻塞调用：run_offline_mode 拥有自己的 while 循环，返回后恢复实时推理
+                    run_offline_mode(
+                        models=models,
+                        preprocess_helper=preprocess_helper,
+                        stats=stats,
+                        device=device,
+                        id_to_label=id_to_label,
+                        font_main=font_main,
+                        font_small=font_small,
+                        window_name=window_name,
+                        target_size=(win_w, win_h),
                     )
-
-                    if not has_hands:
-                        last_result = None
-                        status_text = "未检测到手部骨骼点信息"
-                        keypoints = None
-                    else:
-                        valid_count = int(np.sum(valid_mask)) if valid_mask is not None else 0
-                        keypoints_valid = (
-                            valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame
-                        )
-
-                        if keypoints_valid and keypoints is not None:
-                            frame_buffer.append(keypoints)
-
-                            if frame_buffer and (
-                                frame_count % cfg.INFERENCE.inference_interval == 0
-                            ):
-                                try:
-                                    inputs, lengths = prepare_sequence(
-                                        frame_buffer, preprocess_helper, stats
-                                    )
-                                    inputs = inputs.to(device)
-                                    lengths = lengths.to(device)
-
-                                    top_idx, top_prob = _ensemble_predict(models, inputs, lengths)
-                                    pred_label = id_to_label.get(top_idx, str(top_idx))
-                                    last_result = (pred_label, top_prob)
-                                except Exception:
-                                    last_result = None
-                        else:
-                            status_text = "关键点数量不足"
-
-                    if has_hands and last_result:
-                        pass
-                    elif has_hands and not last_result:
-                        status_text = "正在分析..."
-                else:
-                    # 离线推理进行中：显示进度，冻结实时结果
-                    keypoints = None
-                    status_text = offline_state.get("status", "正在处理视频...")
+                    # 恢复实时推理鼠标回调，重置状态
+                    cv2.setMouseCallback(window_name, on_mouse, mouse_state)
+                    frame_buffer.clear()
                     last_result = None
+
+                # ---- 实时推理逻辑 ----
+                keypoints, valid_mask, has_hands = extractor.extract_frame_optimized(
+                    frame, timestamp_ms
+                )
+
+                if not has_hands:
+                    last_result = None
+                    status_text = "未检测到手部骨骼点信息"
+                    keypoints = None
+                else:
+                    valid_count = int(np.sum(valid_mask)) if valid_mask is not None else 0
+                    keypoints_valid = valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame
+
+                    if keypoints_valid and keypoints is not None:
+                        frame_buffer.append(keypoints)
+
+                        if frame_buffer and (frame_count % cfg.INFERENCE.inference_interval == 0):
+                            try:
+                                inputs, lengths = prepare_sequence(
+                                    frame_buffer, preprocess_helper, stats
+                                )
+                                inputs = inputs.to(device)
+                                lengths = lengths.to(device)
+
+                                top_idx, top_prob = _ensemble_predict(models, inputs, lengths)
+                                pred_label = id_to_label.get(top_idx, str(top_idx))
+                                last_result = (pred_label, top_prob)
+                            except Exception:
+                                last_result = None
+                    else:
+                        status_text = "关键点数量不足"
+
+                if has_hands and not last_result:
+                    status_text = "正在分析..."
 
                 # FPS 估计
                 elapsed = time.time() - start_time
