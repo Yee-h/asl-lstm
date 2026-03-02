@@ -372,6 +372,254 @@ def draw_modern_ui(
     )
 
 
+def draw_offline_ui(
+    video_frame: "np.ndarray | None",
+    result: "Tuple[str, float] | None",
+    status_text: str,
+    font_main,
+    font_small,
+    mouse_pos: "Tuple[int, int] | None",
+    show_skeleton: bool,
+    target_size: "Tuple[int, int]",
+) -> "Tuple[np.ndarray, Tuple[int,int,int,int], Tuple[int,int,int,int], Tuple[int,int,int,int] | None]":
+    """
+    绘制离线推理界面。
+
+    布局：黑色背景 + 中央视频帧 + 右上角按钮（退出离线推理、骨骼切换）
+          + 底部结果卡（带 × 关闭按钮）或状态文字卡。
+
+    Returns:
+        (rendered_frame, exit_offline_rect, skel_rect, close_result_rect)
+        close_result_rect 在无结果时为 None。
+    """
+    tw, th = target_size
+
+    # 黑色背景画布
+    canvas = np.zeros((th, tw, 3), dtype=np.uint8)
+
+    # --- 中央视频帧 ---
+    if video_frame is not None:
+        vf_h, vf_w = video_frame.shape[:2]
+        max_vw = int(tw * 0.85)
+        max_vh = int(th * 0.72)
+        scale = min(max_vw / max(vf_w, 1), max_vh / max(vf_h, 1))
+        disp_w = max(1, int(vf_w * scale))
+        disp_h = max(1, int(vf_h * scale))
+        resized = cv2.resize(video_frame, (disp_w, disp_h))
+        vx = (tw - disp_w) // 2
+        vy = max(0, (th - disp_h) // 2 - 20)
+        vy_end = min(th, vy + disp_h)
+        vx_end = min(tw, vx + disp_w)
+        canvas[vy:vy_end, vx:vx_end] = resized[: vy_end - vy, : vx_end - vx]
+        cv2.rectangle(canvas, (vx - 1, vy - 1), (vx_end, vy_end), (255, 255, 255), 1)
+
+    # --- PIL 叠加层 ---
+    image = Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)).convert("RGBA")
+    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    _margin = cfg.UI.exit_button_margin
+    margin_r: int = int(_margin[0])
+    margin_t: int = int(_margin[1])
+    btn_height = 44
+    btn_radius = 12
+
+    # --- 退出离线推理按钮（红色，最右）---
+    exit_text = "退出离线推理"
+    exit_bbox = draw.textbbox((0, 0), exit_text, font=font_small)
+    exit_text_w: int = int(exit_bbox[2] - exit_bbox[0])
+    exit_w: int = max(130, exit_text_w + 40)
+    exit_x1: int = tw - margin_r - exit_w
+    exit_y1: int = margin_t
+    exit_x2: int = exit_x1 + exit_w
+    exit_y2: int = exit_y1 + btn_height
+
+    is_hover_exit = False
+    if mouse_pos:
+        mx, my = mouse_pos
+        if exit_x1 <= mx <= exit_x2 and exit_y1 <= my <= exit_y2:
+            is_hover_exit = True
+
+    exit_fill = (255, 60, 60, 230) if is_hover_exit else (40, 40, 40, 160)
+    exit_outline = (255, 200, 200, 180) if is_hover_exit else (255, 255, 255, 40)
+    draw.rounded_rectangle(
+        [exit_x1, exit_y1, exit_x2, exit_y2],
+        radius=btn_radius,
+        fill=exit_fill,
+        outline=exit_outline,
+        width=1,
+    )
+    draw.text(
+        (
+            exit_x1 + (exit_w - exit_text_w) // 2,
+            exit_y1 + (btn_height - (exit_bbox[3] - exit_bbox[1])) // 2 - 2,
+        ),
+        exit_text,
+        font=font_small,
+        fill=(255, 255, 255, 255),
+    )
+
+    # --- 骨骼切换按钮（退出按钮左侧）---
+    skel_text = "骨骼: 开" if show_skeleton else "骨骼: 关"
+    skel_bbox = draw.textbbox((0, 0), skel_text, font=font_small)
+    skel_text_w: int = int(skel_bbox[2] - skel_bbox[0])
+    skel_w: int = max(110, skel_text_w + 40)
+    skel_x2: int = exit_x1 - 15
+    skel_x1: int = skel_x2 - skel_w
+    skel_y1: int = margin_t
+    skel_y2: int = skel_y1 + btn_height
+
+    is_hover_skel = False
+    if mouse_pos:
+        mx, my = mouse_pos
+        if skel_x1 <= mx <= skel_x2 and skel_y1 <= my <= skel_y2:
+            is_hover_skel = True
+
+    if show_skeleton:
+        skel_fill = (0, 200, 120, 230) if is_hover_skel else (0, 160, 90, 200)
+        skel_outline = (200, 255, 200, 180) if is_hover_skel else (255, 255, 255, 50)
+    else:
+        skel_fill = (70, 70, 70, 230) if is_hover_skel else (40, 40, 40, 160)
+        skel_outline = (255, 255, 255, 100) if is_hover_skel else (255, 255, 255, 40)
+
+    draw.rounded_rectangle(
+        [skel_x1, skel_y1, skel_x2, skel_y2],
+        radius=btn_radius,
+        fill=skel_fill,
+        outline=skel_outline,
+        width=1,
+    )
+    draw.text(
+        (
+            skel_x1 + (skel_w - skel_text_w) // 2,
+            skel_y1 + (btn_height - (skel_bbox[3] - skel_bbox[1])) // 2 - 2,
+        ),
+        skel_text,
+        font=font_small,
+        fill=(255, 255, 255, 255),
+    )
+
+    # --- 底部结果卡 或 状态文字卡 ---
+    card_h = 100
+    bottom_margin = 40
+    close_result_rect = None
+
+    if result:
+        label, prob = result
+        prob_percent = int(prob * 100)
+
+        label_bbox = draw.textbbox((0, 0), label, font=font_main)
+        label_w: int = int(label_bbox[2] - label_bbox[0])
+        prob_text = f"{prob_percent}%"
+        prob_bbox = draw.textbbox((0, 0), prob_text, font=font_main)
+        prob_w: int = int(prob_bbox[2] - prob_bbox[0])
+
+        content_gap = 20
+        min_card_w = 360
+        card_w: int = max(min_card_w, label_w + content_gap + prob_w + 60)
+        card_x1: int = (tw - card_w) // 2
+        card_y1: int = th - card_h - bottom_margin
+        card_x2: int = card_x1 + card_w
+        card_y2: int = card_y1 + card_h
+
+        draw.rounded_rectangle(
+            [card_x1, card_y1, card_x2, card_y2],
+            radius=20,
+            fill=(20, 20, 20, 220),
+            outline=(255, 255, 255, 25),
+            width=1,
+        )
+
+        text_y_base = card_y1 + 25
+        draw.text((card_x1 + 30, text_y_base), label, font=font_main, fill=(255, 255, 255, 255))
+
+        if prob > 0.8:
+            prob_color = (100, 255, 100, 255)
+        elif prob > 0.5:
+            prob_color = (255, 200, 50, 255)
+        else:
+            prob_color = (255, 80, 80, 255)
+
+        draw.text((card_x2 - 30 - prob_w, text_y_base), prob_text, font=font_main, fill=prob_color)
+
+        bar_x1 = card_x1 + 30
+        bar_x2 = card_x2 - 30
+        bar_y1 = card_y2 - 30
+        bar_y2 = bar_y1 + 8
+        draw.rounded_rectangle([bar_x1, bar_y1, bar_x2, bar_y2], radius=4, fill=(60, 60, 60, 255))
+        fill_w = int((bar_x2 - bar_x1) * prob)
+        if fill_w > 0:
+            draw.rounded_rectangle(
+                [bar_x1, bar_y1, bar_x1 + fill_w, bar_y2], radius=4, fill=prob_color
+            )
+
+        # × 关闭按钮（结果卡右上角悬浮圆圈）
+        close_size = 32
+        close_x1: int = card_x2 - close_size // 2
+        close_y1: int = card_y1 - close_size // 2
+        close_x2: int = close_x1 + close_size
+        close_y2: int = close_y1 + close_size
+
+        is_hover_close = False
+        if mouse_pos:
+            mx, my = mouse_pos
+            if close_x1 <= mx <= close_x2 and close_y1 <= my <= close_y2:
+                is_hover_close = True
+
+        close_fill = (255, 80, 80, 230) if is_hover_close else (160, 50, 50, 200)
+        draw.ellipse([close_x1, close_y1, close_x2, close_y2], fill=close_fill)
+        x_text = "×"
+        x_bbox = draw.textbbox((0, 0), x_text, font=font_small)
+        draw.text(
+            (
+                close_x1 + (close_size - (x_bbox[2] - x_bbox[0])) // 2,
+                close_y1 + (close_size - (x_bbox[3] - x_bbox[1])) // 2 - 2,
+            ),
+            x_text,
+            font=font_small,
+            fill=(255, 255, 255, 255),
+        )
+        close_result_rect = (close_x1, close_y1, close_x2, close_y2)
+
+    else:
+        # 状态文字卡（待机 / 推理中 / 错误）
+        hint_text = status_text if status_text else "请点击右上角导入视频..."
+        hint_bbox = draw.textbbox((0, 0), hint_text, font=font_main)
+        hint_w: int = int(hint_bbox[2] - hint_bbox[0])
+        card_w = max(320, hint_w + 80)
+        card_h_s = 80
+        cx1 = (tw - card_w) // 2
+        cy1 = th - card_h_s - bottom_margin
+        cx2 = cx1 + card_w
+        cy2 = cy1 + card_h_s
+        draw.rounded_rectangle(
+            [cx1, cy1, cx2, cy2],
+            radius=20,
+            fill=(30, 30, 30, 200),
+            outline=(255, 255, 255, 20),
+            width=1,
+        )
+        draw.text(
+            (
+                cx1 + (card_w - hint_w) // 2,
+                cy1 + (card_h_s - (hint_bbox[3] - hint_bbox[1])) // 2 - 4,
+            ),
+            hint_text,
+            font=font_main,
+            fill=(180, 180, 180, 255),
+        )
+
+    out = Image.alpha_composite(image, overlay)
+    rendered = cv2.cvtColor(np.array(out), cv2.COLOR_RGBA2BGR)
+
+    return (
+        rendered,
+        (exit_x1, exit_y1, exit_x2, exit_y2),
+        (skel_x1, skel_y1, skel_x2, skel_y2),
+        close_result_rect,
+    )
+
+
 def draw_skeleton(frame: np.ndarray, keypoints: np.ndarray) -> np.ndarray:
     """
     在画面上绘制 MediaPipe 提取的骨骼关键点。
