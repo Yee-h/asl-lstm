@@ -2,8 +2,9 @@ import sys
 import os
 import io
 import time
+import threading
 from collections import deque
-from typing import Deque, Tuple, Dict, Any
+from typing import Deque, Tuple, Dict, Any, List
 
 import cv2
 import numpy as np
@@ -55,9 +56,14 @@ def draw_modern_ui(
     show_skeleton: bool,
     mouse_pos: Tuple[int, int] | None,
     status_text: str | None = None,
-) -> Tuple[np.ndarray, Tuple[int, int, int, int], Tuple[int, int, int, int]]:
+) -> Tuple[
+    np.ndarray, Tuple[int, int, int, int], Tuple[int, int, int, int], Tuple[int, int, int, int]
+]:
     """
     绘制现代化、极简主义风格的 UI 界面。
+
+    Returns:
+        (rendered_frame, exit_rect, skel_rect, import_rect)
     """
     h, w = frame.shape[:2]
 
@@ -190,6 +196,50 @@ def draw_modern_ui(
         fill=(255, 255, 255, 255),
     )
 
+    # --- 导入视频按钮 (Import) ---
+    import_text = cfg.UI.import_button_text
+    import_bbox = draw.textbbox((0, 0), import_text, font=font_small)
+    import_text_w = import_bbox[2] - import_bbox[0]
+    import_w = max(110, import_text_w + 40)
+
+    import_x2 = skel_x1 - 15  # 在骨骼按钮左侧
+    import_x1 = import_x2 - import_w
+    import_y1 = margin_t
+    import_y2 = import_y1 + btn_height
+
+    # 检测 Hover
+    is_hover_import = False
+    if mouse_pos:
+        mx, my = mouse_pos
+        if import_x1 <= mx <= import_x2 and import_y1 <= my <= import_y2:
+            is_hover_import = True
+
+    # 蓝色系
+    if is_hover_import:
+        import_fill = (60, 130, 255, 230)
+        import_outline = (180, 210, 255, 180)
+    else:
+        import_fill = (40, 90, 180, 200)
+        import_outline = (255, 255, 255, 50)
+
+    draw.rounded_rectangle(
+        [import_x1, import_y1, import_x2, import_y2],
+        radius=btn_radius,
+        fill=import_fill,
+        outline=import_outline,
+        width=1,
+    )
+
+    draw.text(
+        (
+            import_x1 + (import_w - import_text_w) // 2,
+            import_y1 + (btn_height - (import_bbox[3] - import_bbox[1])) // 2 - 2,
+        ),
+        import_text,
+        font=font_small,
+        fill=(255, 255, 255, 255),
+    )
+
     # ==========================
     # 3. 底部预测结果展示区 (卡片式)
     # ==========================
@@ -318,6 +368,7 @@ def draw_modern_ui(
         rendered,
         (exit_x1, exit_y1, exit_x2, exit_y2),
         (skel_x1, skel_y1, skel_x2, skel_y2),
+        (import_x1, import_y1, import_x2, import_y2),
     )
 
 
@@ -427,7 +478,7 @@ def draw_skeleton(frame: np.ndarray, keypoints: np.ndarray) -> np.ndarray:
 
 
 def on_mouse(event: int, x: int, y: int, flags: int, params: Any):
-    """鼠标回调：检测是否点击退出按钮或骨骼切换按钮。"""
+    """鼠标回调：检测是否点击退出按钮、骨骼切换按钮或导入视频按钮。"""
     if params is None:
         return
 
@@ -452,6 +503,14 @@ def on_mouse(event: int, x: int, y: int, flags: int, params: Any):
         x1, y1, x2, y2 = skel_rect
         if x1 <= x <= x2 and y1 <= y <= y2:
             params["show_skeleton"] = not params.get("show_skeleton", False)
+            return
+
+    # 检测导入视频按钮（仅当未处于视频处理中时响应）
+    import_rect = params.get("import_rect")
+    if import_rect and not params.get("importing", False):
+        x1, y1, x2, y2 = import_rect
+        if x1 <= x <= x2 and y1 <= y <= y2:
+            params["import_video"] = True
 
 
 def prepare_sequence(
@@ -504,14 +563,205 @@ def prepare_sequence(
     return inputs, lengths
 
 
+def _load_ensemble_models(device: torch.device) -> List[torch.nn.Module]:
+    """
+    加载集成推理所需的多个模型。
+
+    优先使用 cfg.EVALUATION.ensemble_model_paths（4模型集成），
+    若为空则回退到 cfg.PATHS.test_model_path（单模型）。
+
+    Returns:
+        已加载到 device 并设置为 eval 模式的模型列表。
+    """
+    ensemble_paths = list(cfg.EVALUATION.ensemble_model_paths)
+
+    if not ensemble_paths:
+        # 回退：单模型模式
+        single_path = cfg.PATHS.test_model_path
+        if not os.path.exists(single_path):
+            raise FileNotFoundError(f"未找到预训练模型文件: {single_path}")
+        model = get_model(use_attention=cfg.MODEL.use_attention).to(device)
+        state_dict = torch.load(single_path, map_location=device, weights_only=True)
+        model.load_state_dict(state_dict)
+        model.eval()
+        print(f"已加载单模型: {os.path.basename(single_path)}")
+        return [model]
+
+    models = []
+    for path in ensemble_paths:
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"集成模型文件未找到: {path}")
+        m = get_model(use_attention=cfg.MODEL.use_attention).to(device)
+        state_dict = torch.load(path, map_location=device, weights_only=True)
+        m.load_state_dict(state_dict)
+        m.eval()
+        models.append(m)
+        print(f"  已加载: {os.path.relpath(path)}")
+
+    print(f"集成推理：共加载 {len(models)} 个模型（softmax 概率平均）")
+    return models
+
+
+def _ensemble_predict(
+    models: List[torch.nn.Module],
+    inputs: torch.Tensor,
+    lengths: torch.Tensor,
+) -> Tuple[int, float]:
+    """
+    使用多模型集成推理（softmax 概率平均），返回预测类别索引和概率。
+
+    Args:
+        models: 已加载的模型列表。
+        inputs: (1, max_frames, input_size) 张量。
+        lengths: (1,) 张量。
+
+    Returns:
+        (top_idx, top_prob) —— 整数类别索引和 float 概率。
+    """
+    avg_probs = None
+    for m in models:
+        logits = m(inputs, lengths)
+        probs = F.softmax(logits, dim=1)  # (1, num_classes)
+        if avg_probs is None:
+            avg_probs = probs
+        else:
+            avg_probs = avg_probs + probs
+
+    avg_probs = avg_probs / len(models)  # type: ignore[operator]
+    avg_probs = avg_probs.squeeze(0)  # (num_classes,)
+
+    top_prob, top_idx = torch.max(avg_probs, dim=0)
+    return int(top_idx.item()), float(top_prob.item())
+
+
+def _open_file_dialog() -> str | None:
+    """
+    在独立线程中弹出系统文件选择对话框，选择视频文件。
+    Windows 下使用 tkinter.filedialog；失败时返回 None。
+
+    Returns:
+        选中的文件路径字符串，或 None（用户取消/失败）。
+    """
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()  # 隐藏 tk 主窗口
+        root.attributes("-topmost", True)  # 置顶对话框
+        path = filedialog.askopenfilename(
+            title="选择视频文件",
+            filetypes=[
+                ("视频文件", "*.mp4 *.avi *.mov *.mkv *.wmv *.flv"),
+                ("所有文件", "*.*"),
+            ],
+        )
+        root.destroy()
+        return path if path else None
+    except Exception as e:
+        print(f"文件对话框打开失败: {e}")
+        return None
+
+
+def _run_offline_inference(
+    video_path: str,
+    models: List[torch.nn.Module],
+    preprocess_helper,
+    stats,
+    device: torch.device,
+    id_to_label: Dict[int, str],
+    result_holder: Dict[str, Any],
+) -> None:
+    """
+    离线视频推理：逐帧提取关键点，使用4模型集成推理，结果写入 result_holder。
+
+    Args:
+        video_path: 视频文件路径。
+        models: 集成模型列表。
+        preprocess_helper: 几何归一化处理器。
+        stats: Z-Score 统计量（可为 None）。
+        device: 推理设备。
+        id_to_label: 类别 ID → 标签映射。
+        result_holder: 用于跨线程传递结果的共享字典：
+            - "status": str，当前处理状态描述
+            - "result": Tuple[str, float] | None，最终推理结果
+            - "done": bool，处理是否完成
+    """
+    result_holder["status"] = "正在打开视频..."
+    result_holder["result"] = None
+    result_holder["done"] = False
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        result_holder["status"] = f"无法打开视频: {os.path.basename(video_path)}"
+        result_holder["done"] = True
+        return
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    extractor = KeypointExtractor(use_video_mode=True)
+    frame_buffer: Deque[np.ndarray] = deque(maxlen=cfg.SEQUENCE.max_frames)
+
+    try:
+        frame_idx = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            frame_idx += 1
+            # 每5帧更新一次进度状态，减少字符串分配
+            if frame_idx % 5 == 0 or frame_idx == 1:
+                pct = int(frame_idx / max(total_frames, 1) * 100)
+                result_holder["status"] = f"正在处理视频... {pct}%"
+
+            timestamp_ms = frame_idx * 33  # 假设约 30fps
+
+            keypoints, valid_mask, has_hands = extractor.extract_frame_optimized(
+                frame, timestamp_ms
+            )
+
+            if has_hands and keypoints is not None:
+                valid_count = int(np.sum(valid_mask)) if valid_mask is not None else 0
+                if valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame:
+                    frame_buffer.append(keypoints)
+
+        result_holder["status"] = "正在推理中..."
+
+        if len(frame_buffer) < 3:
+            result_holder["status"] = "视频中未检测到足够手部关键点"
+            result_holder["done"] = True
+            return
+
+        with torch.no_grad():
+            inputs, lengths = prepare_sequence(frame_buffer, preprocess_helper, stats)
+            inputs = inputs.to(device)
+            lengths = lengths.to(device)
+            top_idx, top_prob = _ensemble_predict(models, inputs, lengths)
+
+        pred_label = id_to_label.get(top_idx, str(top_idx))
+        result_holder["result"] = (pred_label, top_prob)
+        result_holder["status"] = f"识别结果: {pred_label} ({int(top_prob * 100)}%)"
+
+    except Exception as e:
+        result_holder["status"] = f"推理出错: {e}"
+    finally:
+        cap.release()
+        extractor.close()
+        result_holder["done"] = True
+
+
 def run_realtime_inference(camera_index: int | str | None = None) -> None:
     """
-    使用摄像头或视频文件与预训练模型进行实时手语分类。
+    使用摄像头或视频文件与预训练模型进行实时手语分类（4模型集成推理）。
+
+    新增功能：
+    - 4模型集成推理（softmax 概率平均），对应 cfg.EVALUATION.ensemble_model_paths。
+    - UI 右上角新增"导入视频"按钮，点击后弹出文件对话框进行离线推理。
 
     Args:
         camera_index: 摄像头索引(int)或视频文件路径(str)，默认使用 cfg.INFERENCE.camera_index。
 
-    按下键盘 "q" 或点击右上角按钮退出。
+    按下键盘 "q" 或点击右上角退出按钮退出。
     """
     device = torch.device(
         "cuda" if torch.cuda.is_available() and cfg.TRAINING.device == "cuda" else "cpu"
@@ -523,18 +773,12 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
     if not id_to_label:
         print("警告: 标签映射为空，将直接输出类别 ID。")
 
-    # 加载模型
-    model = get_model(use_attention=cfg.MODEL.use_attention).to(device)
-    model_path = cfg.PATHS.test_model_path
-    if not os.path.exists(model_path):
-        print(f"错误: 未找到预训练模型文件: {model_path}")
+    # 加载集成模型（优先4模型，回退单模型）
+    try:
+        models = _load_ensemble_models(device)
+    except FileNotFoundError as e:
+        print(f"错误: {e}")
         return
-
-    state_dict = torch.load(model_path, map_location=device)
-    model.load_state_dict(state_dict)
-    model.eval()
-    model_name = "BiLSTM+Attention" if cfg.MODEL.use_attention else "BiLSTM"
-    print(f"已加载模型: {model_name} -> {os.path.basename(model_path)}")
 
     # 初始化关键点提取器 (启用 VIDEO 模式以提升性能)
     extractor = KeypointExtractor(use_video_mode=True)
@@ -555,14 +799,17 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
     font_main = load_chinese_font(cfg.UI.font_size)
     font_small = load_chinese_font(cfg.UI.font_small_size)
 
-    # 窗口与鼠标回调（用于退出按钮和骨骼切换按钮）
+    # 窗口与鼠标回调
     window_name = "Real-time Sign Prediction"
     mouse_state: Dict[str, Any] = {
         "exit_rect": None,
         "skel_rect": None,
+        "import_rect": None,
         "quit": False,
         "show_skeleton": False,
         "mouse_pos": None,
+        "import_video": False,  # 点击"导入视频"后置 True
+        "importing": False,  # 离线推理进行中时置 True（防止重复触发）
     }
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     cv2.setMouseCallback(window_name, on_mouse, mouse_state)
@@ -573,7 +820,6 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
 
     # 仅当输入源为整数（摄像头索引）时设置摄像头参数
     if isinstance(cam_source, int):
-        # 设置摄像头参数以提高帧率
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, cfg.INFERENCE.camera_width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg.INFERENCE.camera_height)
         cap.set(cv2.CAP_PROP_FPS, cfg.INFERENCE.camera_fps)
@@ -594,7 +840,14 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
     frame_buffer: Deque[np.ndarray] = deque(maxlen=cfg.SEQUENCE.max_frames)
     last_result: Tuple[str, float] | None = None
 
-    print('\n实时推理已启动，按 "q" 退出。\n')
+    # 离线推理状态（跨线程共享，由子线程写入，主线程读取）
+    offline_state: Dict[str, Any] = {
+        "status": "",
+        "result": None,
+        "done": True,
+    }
+
+    print('\n实时推理已启动（4模型集成），按 "q" 退出。\n')
     start_time = time.time()
     frame_count = 0
     status_text = "初始化..."
@@ -607,78 +860,110 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
                     print("读取摄像头失败，即将退出。")
                     break
 
-                # 水平翻转画面，使显示更自然（镜像效果）
-                # 仅对摄像头输入进行翻转，视频文件保持原样
+                # 水平翻转画面（仅摄像头，视频文件保持原样）
                 if isinstance(cam_source, int):
                     frame = cv2.flip(frame, 1)
 
                 frame_count += 1
                 timestamp_ms = int(time.time() * 1000)
 
-                # 使用优化后的提取方法：优先检测手部
-                keypoints, valid_mask, has_hands = extractor.extract_frame_optimized(
-                    frame, timestamp_ms
-                )
+                # ---- 处理"导入视频"按钮点击 ----
+                if mouse_state.get("import_video") and not mouse_state.get("importing"):
+                    mouse_state["import_video"] = False
+                    mouse_state["importing"] = True
+                    offline_state["done"] = False
+                    offline_state["status"] = "请在弹出对话框中选择视频文件..."
+                    offline_state["result"] = None
 
-                if not has_hands:
-                    # 未检测到手部，清空缓冲区（或保持不变？建议清空以避免拼接错误动作）
-                    # frame_buffer.clear() # 可选：是否清空取决于交互设计，这里选择不清空但暂停推理
-                    last_result = None
-                    # 更新状态文本
-                    status_text = "未检测到手部骨骼点信息"
-                    keypoints = None  # 不显示旧骨骼
-                else:
-                    # 检查关键点是否有效（至少有一定数量的非零点才认为检测成功）
-                    # extract_frame_optimized 已经保证了 hand_landmarks 存在，这里再做一次数量检查
-                    valid_count = int(np.sum(valid_mask)) if valid_mask is not None else 0
-                    keypoints_valid = valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame
+                    # 在主线程弹出文件对话框（tkinter 要求主线程）
+                    video_path = _open_file_dialog()
 
-                    # 只有检测到有效骨骼点时才更新 buffer
-                    if keypoints_valid and keypoints is not None:
-                        frame_buffer.append(keypoints)
-
-                        # 按间隔进行模型推理以提高帧率
-                        if frame_buffer and (frame_count % cfg.INFERENCE.inference_interval == 0):
-                            try:
-                                inputs, lengths = prepare_sequence(
-                                    frame_buffer, preprocess_helper, stats
-                                )
-                                inputs = inputs.to(device)
-                                lengths = lengths.to(device)
-
-                                logits = model(inputs, lengths)
-                                probs = F.softmax(logits, dim=1).squeeze(0)
-
-                                top_prob, top_idx = torch.max(probs, dim=0)
-                                pred_label = id_to_label.get(
-                                    int(top_idx.item()), str(int(top_idx.item()))
-                                )
-                                last_result = (pred_label, float(top_prob.item()))
-                            except Exception:
-                                # 仅在调试时打印详细错误，避免刷屏
-                                # print(f"推理错误: {e}")
-                                last_result = None
+                    if video_path:
+                        print(f"开始离线推理: {video_path}")
+                        # 启动后台线程处理视频，避免阻塞 UI
+                        t = threading.Thread(
+                            target=_run_offline_inference,
+                            args=(
+                                video_path,
+                                models,
+                                preprocess_helper,
+                                stats,
+                                device,
+                                id_to_label,
+                                offline_state,
+                            ),
+                            daemon=True,
+                        )
+                        t.start()
                     else:
-                        # 有手但关键点数量不足（极少情况）
-                        status_text = "关键点数量不足"
+                        # 用户取消文件选择
+                        offline_state["status"] = ""
+                        offline_state["done"] = True
+                        mouse_state["importing"] = False
 
-                # 叠加显示信息（中文）
-                # status_text 在上面已经处理了 "无手" 的情况，这里处理有结果的情况
-                if has_hands and last_result:
-                    pass  # UI draw_modern_ui 会处理 last_result
-                elif has_hands and not last_result:
-                    status_text = "正在分析..."  # 或者保持上一帧状态
+                # ---- 离线推理完成后同步状态 ----
+                if mouse_state.get("importing") and offline_state.get("done"):
+                    mouse_state["importing"] = False
+                    if offline_state.get("result"):
+                        last_result = offline_state["result"]
+
+                # ---- 实时推理逻辑（离线推理进行中时跳过，避免干扰） ----
+                if not mouse_state.get("importing"):
+                    keypoints, valid_mask, has_hands = extractor.extract_frame_optimized(
+                        frame, timestamp_ms
+                    )
+
+                    if not has_hands:
+                        last_result = None
+                        status_text = "未检测到手部骨骼点信息"
+                        keypoints = None
+                    else:
+                        valid_count = int(np.sum(valid_mask)) if valid_mask is not None else 0
+                        keypoints_valid = (
+                            valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame
+                        )
+
+                        if keypoints_valid and keypoints is not None:
+                            frame_buffer.append(keypoints)
+
+                            if frame_buffer and (
+                                frame_count % cfg.INFERENCE.inference_interval == 0
+                            ):
+                                try:
+                                    inputs, lengths = prepare_sequence(
+                                        frame_buffer, preprocess_helper, stats
+                                    )
+                                    inputs = inputs.to(device)
+                                    lengths = lengths.to(device)
+
+                                    top_idx, top_prob = _ensemble_predict(models, inputs, lengths)
+                                    pred_label = id_to_label.get(top_idx, str(top_idx))
+                                    last_result = (pred_label, top_prob)
+                                except Exception:
+                                    last_result = None
+                        else:
+                            status_text = "关键点数量不足"
+
+                    if has_hands and last_result:
+                        pass
+                    elif has_hands and not last_result:
+                        status_text = "正在分析..."
+                else:
+                    # 离线推理进行中：显示进度，冻结实时结果
+                    keypoints = None
+                    status_text = offline_state.get("status", "正在处理视频...")
+                    last_result = None
 
                 # FPS 估计
                 elapsed = time.time() - start_time
                 fps = frame_count / max(elapsed, 1e-5)
 
-                # 如果开启骨骼显示，先绘制骨骼点
+                # 绘制骨骼（仅实时模式且已开启）
                 display_frame = frame.copy()
                 if mouse_state.get("show_skeleton") and keypoints is not None:
                     display_frame = draw_skeleton(display_frame, keypoints)
 
-                overlay, exit_rect, skel_rect = draw_modern_ui(
+                overlay, exit_rect, skel_rect, import_rect = draw_modern_ui(
                     display_frame,
                     last_result,
                     fps,
@@ -690,17 +975,16 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
                 )
                 mouse_state["exit_rect"] = exit_rect
                 mouse_state["skel_rect"] = skel_rect
+                mouse_state["import_rect"] = import_rect
 
-                # 检查窗口是否被用户关闭 (X 按钮)
-                # 必须在 imshow 之前检查，否则 imshow 会自动重建窗口导致无法检测关闭事件
-                # 同时也解决了重建窗口后鼠标回调失效导致按钮不可用的问题
+                # 检查窗口是否被用户关闭
                 if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
                     print("窗口被用户关闭。")
                     break
 
                 cv2.imshow(window_name, overlay)
 
-                # 退出条件：按键 q 或点击右上角按钮
+                # 退出条件：按键 q 或点击退出按钮
                 if (cv2.waitKey(1) & 0xFF == ord("q")) or mouse_state.get("quit"):
                     break
     finally:
@@ -714,7 +998,7 @@ import argparse
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="实时手语推理")
+    parser = argparse.ArgumentParser(description="实时手语推理（4模型集成）")
     parser.add_argument(
         "--camera",
         "-c",
@@ -736,8 +1020,6 @@ if __name__ == "__main__":
     _configure_windows_console()
     args = parse_args()
 
-    # 如果指定了视频文件，临时修改 config 中的 camera_index 为视频路径
-    # 注意：cv2.VideoCapture 支持整数索引或文件路径字符串
     source = args.camera if args.camera is not None else cfg.INFERENCE.camera_index
     if args.video:
         if os.path.exists(args.video):

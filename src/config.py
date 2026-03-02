@@ -364,6 +364,10 @@ class UIConfig:
     skeleton_line_color: tuple[int, int, int]
     # 骨架线宽
     skeleton_line_thickness: int
+    # 导入视频按钮文案
+    import_button_text: str
+    # 导入视频按钮尺寸
+    import_button_size: tuple[int, int]
 
 
 _processed_data_dir = os.path.join(
@@ -556,7 +560,18 @@ TRAINING = TrainingConfig(
 EVALUATION = EvaluationConfig(
     # ==================== 模型路径配置 ====================
     model_path=os.path.join(_PROJECT_ROOT, "src", "checkpoints", "best_model.pth"),  # 默认评估模型
-    ensemble_model_paths=(),  # 集成评估模型列表（为空则使用单模型）
+    ensemble_model_paths=(  # E05 多种子4模型集成（test_acc=75.97%）
+        os.path.join(
+            _PROJECT_ROOT, "src", "checkpoints", "seed456_temporal_mask", "best_model.pth"
+        ),
+        os.path.join(
+            _PROJECT_ROOT, "src", "checkpoints", "seed123_temporal_mask", "best_model.pth"
+        ),
+        os.path.join(
+            _PROJECT_ROOT, "src", "checkpoints", "seed789_temporal_mask", "best_model.pth"
+        ),
+        os.path.join(_PROJECT_ROOT, "src", "checkpoints", "seed42_temporal_mask", "best_model.pth"),
+    ),
     # ==================== TTA 配置 ====================
     use_tta_hflip=False,  # 关闭 TTA，保持评估稳定性
     # ==================== 评估参数 ====================
@@ -592,6 +607,8 @@ UI = UIConfig(
     skeleton_point_color=(0, 255, 0),  # 关键点颜色
     skeleton_line_color=(255, 255, 0),  # 骨架线颜色
     skeleton_line_thickness=1,  # 骨架线宽
+    import_button_text="导入视频",  # 导入视频按钮文案
+    import_button_size=(110, 40),  # 导入视频按钮尺寸
 )
 
 
