@@ -761,6 +761,166 @@ def on_mouse(event: int, x: int, y: int, flags: int, params: Any):
             params["import_video"] = True
 
 
+def on_offline_mouse(event: int, x: int, y: int, flags: int, params: Any):
+    """离线推理界面鼠标回调：检测退出、骨骼切换、×关闭结果按钮。"""
+    if params is None:
+        return
+
+    if event == cv2.EVENT_MOUSEMOVE:
+        params["mouse_pos"] = (x, y)
+
+    if event != cv2.EVENT_LBUTTONDOWN:
+        return
+
+    # 退出离线推理按钮
+    exit_rect = params.get("exit_offline_rect")
+    if exit_rect:
+        x1, y1, x2, y2 = exit_rect
+        if x1 <= x <= x2 and y1 <= y <= y2:
+            params["exit_offline"] = True
+            return
+
+    # 骨骼切换按钮
+    skel_rect = params.get("skel_rect")
+    if skel_rect:
+        x1, y1, x2, y2 = skel_rect
+        if x1 <= x <= x2 and y1 <= y <= y2:
+            params["show_skeleton"] = not params.get("show_skeleton", False)
+            return
+
+    # × 关闭结果按钮
+    close_rect = params.get("close_result_rect")
+    if close_rect:
+        x1, y1, x2, y2 = close_rect
+        if x1 <= x <= x2 and y1 <= y <= y2:
+            params["close_result"] = True
+
+
+def run_offline_mode(
+    models: List[torch.nn.Module],
+    preprocess_helper: PreprocessHelper,
+    stats: Dict[str, Any] | None,
+    device: torch.device,
+    id_to_label: Dict[int, str],
+    font_main,
+    font_small,
+    window_name: str,
+    target_size: Tuple[int, int],
+) -> None:
+    """
+    独立的离线推理界面主循环。
+
+    流程：
+      1. 弹出文件对话框，用户取消则直接返回。
+      2. 在后台线程中执行视频推理（_run_offline_inference）。
+      3. 在主线程中循环播放视频帧，显示推理进度和最终结果。
+      4. 用户点击"退出离线推理"按钮后返回，调用方负责恢复实时推理鼠标回调。
+    """
+    video_path = _open_file_dialog()
+    if not video_path:
+        return  # 用户取消，直接返回实时推理
+
+    tw, th = target_size
+
+    # 离线推理状态（跨线程共享）
+    offline_state: Dict[str, Any] = {
+        "status": "正在初始化...",
+        "result": None,
+        "done": False,
+    }
+
+    # 启动后台推理线程
+    t = threading.Thread(
+        target=_run_offline_inference,
+        args=(video_path, models, preprocess_helper, stats, device, id_to_label, offline_state),
+        daemon=True,
+    )
+    t.start()
+
+    # 打开视频用于循环播放
+    cap_vid = cv2.VideoCapture(video_path)
+    vid_fps = cap_vid.get(cv2.CAP_PROP_FPS)
+    if vid_fps <= 0:
+        vid_fps = 30.0
+    frame_delay = max(1, int(1000 / vid_fps))  # waitKey 毫秒数
+
+    # 离线界面鼠标状态
+    offline_mouse: Dict[str, Any] = {
+        "mouse_pos": None,
+        "show_skeleton": False,
+        "exit_offline": False,
+        "close_result": False,
+        "exit_offline_rect": None,
+        "skel_rect": None,
+        "close_result_rect": None,
+    }
+    cv2.setMouseCallback(window_name, on_offline_mouse, offline_mouse)
+
+    offline_result: Tuple[str, float] | None = None
+    current_video_frame: np.ndarray | None = None
+
+    try:
+        while True:
+            # 读取下一帧，到结尾则循环播放
+            ret, vframe = cap_vid.read()
+            if not ret:
+                cap_vid.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                ret, vframe = cap_vid.read()
+            if ret:
+                current_video_frame = vframe
+
+            # 同步推理结果
+            if offline_state.get("done") and offline_result is None:
+                if offline_state.get("result"):
+                    offline_result = offline_state["result"]
+
+            # 处理 × 关闭结果
+            if offline_mouse.get("close_result"):
+                offline_mouse["close_result"] = False
+                offline_result = None
+
+            # 处理退出按钮
+            if offline_mouse.get("exit_offline"):
+                break
+
+            # 确定状态文字
+            if offline_result:
+                status = ""
+            elif offline_state.get("done"):
+                status = offline_state.get("status", "")
+            else:
+                status = offline_state.get("status", "正在处理视频...")
+
+            # 渲染离线界面
+            rendered, exit_rect, skel_rect, close_rect = draw_offline_ui(
+                video_frame=current_video_frame,
+                result=offline_result,
+                status_text=status,
+                font_main=font_main,
+                font_small=font_small,
+                mouse_pos=offline_mouse.get("mouse_pos"),
+                show_skeleton=offline_mouse.get("show_skeleton", False),
+                target_size=(tw, th),
+            )
+
+            # 更新鼠标回调区域
+            offline_mouse["exit_offline_rect"] = exit_rect
+            offline_mouse["skel_rect"] = skel_rect
+            offline_mouse["close_result_rect"] = close_rect
+
+            cv2.imshow(window_name, rendered)
+
+            key = cv2.waitKey(frame_delay) & 0xFF
+            if key == ord("q"):
+                break
+
+            # 窗口被用户关闭
+            if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+                break
+    finally:
+        cap_vid.release()
+
+
 def prepare_sequence(
     frame_buffer: Deque[np.ndarray],
     helper: PreprocessHelper,
