@@ -847,6 +847,11 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
         "done": True,
     }
 
+    # 离线推理完成后的结果（持久显示，直到下一次实时推理检测到手部才清除）
+    offline_result: Tuple[str, float] | None = None
+    # 是否处于"离线结果展示"模式（True时实时推理不覆盖结果）
+    offline_result_mode: bool = False
+
     print('\n实时推理已启动（4模型集成），按 "q" 退出。\n')
     start_time = time.time()
     frame_count = 0
@@ -871,6 +876,9 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
                 if mouse_state.get("import_video") and not mouse_state.get("importing"):
                     mouse_state["import_video"] = False
                     mouse_state["importing"] = True
+                    # 清除上次离线结果，恢复实时推理（此次新导入完成前暂不显示旧结果）
+                    offline_result = None
+                    offline_result_mode = False
                     offline_state["done"] = False
                     offline_state["status"] = "请在弹出对话框中选择视频文件..."
                     offline_state["result"] = None
@@ -905,10 +913,17 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
                 if mouse_state.get("importing") and offline_state.get("done"):
                     mouse_state["importing"] = False
                     if offline_state.get("result"):
-                        last_result = offline_state["result"]
+                        offline_result = offline_state["result"]
+                        offline_result_mode = True  # 进入离线结果展示模式
 
-                # ---- 实时推理逻辑（离线推理进行中时跳过，避免干扰） ----
-                if not mouse_state.get("importing"):
+                # ---- 离线结果展示模式：锁定结果，完全跳过实时推理 ----
+                if offline_result_mode:
+                    keypoints = None
+                    last_result = offline_result
+                    status_text = "离线推理完成"
+
+                # ---- 实时推理逻辑（离线推理进行中或离线结果展示时跳过） ----
+                elif not mouse_state.get("importing"):
                     keypoints, valid_mask, has_hands = extractor.extract_frame_optimized(
                         frame, timestamp_ms
                     )
