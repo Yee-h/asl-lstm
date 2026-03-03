@@ -56,14 +56,12 @@ def draw_modern_ui(
     show_skeleton: bool,
     mouse_pos: Tuple[int, int] | None,
     status_text: str | None = None,
-) -> Tuple[
-    np.ndarray, Tuple[int, int, int, int], Tuple[int, int, int, int], Tuple[int, int, int, int]
-]:
+) -> Tuple[np.ndarray, Tuple[int, int, int, int], Tuple[int, int, int, int]]:
     """
-    绘制现代化、极简主义风格的 UI 界面。
+    绘制现代化、温馨极简主义风格的实时 UI 界面。
 
     Returns:
-        (rendered_frame, exit_rect, skel_rect, import_rect)
+        (rendered_frame, exit_rect, skel_rect)
     """
     h, w = frame.shape[:2]
 
@@ -71,6 +69,18 @@ def draw_modern_ui(
     image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).convert("RGBA")
     overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
+
+    # 颜色定义 (保持与启动器类似的暖调)
+    color_surface = (245, 250, 255, 230)
+    color_surface_dim = (220, 230, 240, 200)
+    color_accent = (140, 160, 250, 240)
+    color_accent_dim = (110, 130, 220, 200)
+    color_danger = (255, 120, 110, 240)
+    color_danger_dim = (255, 150, 140, 200)
+    color_teal = (130, 220, 160, 240)
+    color_teal_dim = (150, 230, 180, 220)
+    color_text = (55, 65, 80, 255)
+    color_text_dim = (110, 120, 140, 255)
 
     # ==========================
     # 1. 顶部信息栏 (FPS)
@@ -82,22 +92,22 @@ def draw_modern_ui(
     fps_x = 20
     fps_y = 20
 
-    # 绘制 FPS 背景胶囊 (半透明黑 + 亮色文字)
+    # 绘制 FPS 背景胶囊 (暖白半透明)
     draw.rounded_rectangle(
         [fps_x, fps_y, fps_x + fps_w, fps_y + fps_h],
         radius=12,
-        fill=(30, 30, 30, 160),
-        outline=(255, 255, 255, 30),
+        fill=color_surface_dim,
+        outline=(200, 210, 220, 150),
         width=1,
     )
-    draw.text((fps_x + 12, fps_y + 6), fps_text, font=font_small, fill=(220, 220, 220, 255))
+    draw.text((fps_x + 12, fps_y + 6), fps_text, font=font_small, fill=color_text)
 
     # ==========================
     # 2. 交互按钮区域 (右上角)
     # ==========================
     margin_r, margin_t = cfg.UI.exit_button_margin
     btn_height = 44  # 稍微加大高度
-    btn_radius = 12  # 圆角半径
+    btn_radius = 22  # 更圆滑的角
 
     # --- 退出按钮 (Exit) ---
     exit_text = cfg.UI.exit_button_text
@@ -117,13 +127,17 @@ def draw_modern_ui(
         if exit_x1 <= mx <= exit_x2 and exit_y1 <= my <= exit_y2:
             is_hover_exit = True
 
-    # 红色系渐变效果 (模拟)
+    # 退出按钮：暖红渐变
     if is_hover_exit:
-        exit_fill = (255, 60, 60, 230)
-        exit_outline = (255, 200, 200, 180)
+        exit_fill = color_danger
+        exit_outline = (255, 100, 90, 200)
     else:
-        exit_fill = (40, 40, 40, 160)
-        exit_outline = (255, 255, 255, 40)
+        exit_fill = color_surface
+        exit_outline = (200, 210, 220, 150)
+
+    draw.rounded_rectangle(
+        [exit_x1, exit_y1 + 2, exit_x2, exit_y2 + 2], radius=btn_radius, fill=(200, 200, 190, 80)
+    )
 
     draw.rounded_rectangle(
         [exit_x1, exit_y1, exit_x2, exit_y2],
@@ -134,6 +148,7 @@ def draw_modern_ui(
     )
 
     # 居中文字
+    exit_text_color = (255, 255, 255, 255) if is_hover_exit else color_danger_dim
     draw.text(
         (
             exit_x1 + (exit_w - exit_text_w) // 2,
@@ -141,7 +156,7 @@ def draw_modern_ui(
         ),
         exit_text,
         font=font_small,
-        fill=(255, 255, 255, 255),
+        fill=exit_text_color,
     )
 
     # --- 骨骼切换按钮 (Skeleton) ---
@@ -162,21 +177,19 @@ def draw_modern_ui(
         if skel_x1 <= mx <= skel_x2 and skel_y1 <= my <= skel_y2:
             is_hover_skel = True
 
-    # 绿色系 (开) / 灰色系 (关)
+    # 绿色系 (开) / 暖白系 (关)
     if show_skeleton:
-        if is_hover_skel:
-            skel_fill = (0, 200, 120, 230)
-            skel_outline = (200, 255, 200, 180)
-        else:
-            skel_fill = (0, 160, 90, 200)
-            skel_outline = (255, 255, 255, 50)
+        skel_fill = color_teal if is_hover_skel else color_teal_dim
+        skel_outline = (100, 200, 130, 200) if is_hover_skel else (120, 210, 150, 150)
+        skel_text_color = (255, 255, 255, 255)
     else:
-        if is_hover_skel:
-            skel_fill = (70, 70, 70, 230)
-            skel_outline = (255, 255, 255, 100)
-        else:
-            skel_fill = (40, 40, 40, 160)
-            skel_outline = (255, 255, 255, 40)
+        skel_fill = color_surface if is_hover_skel else color_surface_dim
+        skel_outline = (200, 210, 220, 200) if is_hover_skel else (210, 220, 230, 150)
+        skel_text_color = color_text_dim
+
+    draw.rounded_rectangle(
+        [skel_x1, skel_y1 + 2, skel_x2, skel_y2 + 2], radius=btn_radius, fill=(200, 200, 190, 80)
+    )
 
     draw.rounded_rectangle(
         [skel_x1, skel_y1, skel_x2, skel_y2],
@@ -185,7 +198,6 @@ def draw_modern_ui(
         outline=skel_outline,
         width=1,
     )
-
     draw.text(
         (
             skel_x1 + (skel_w - skel_text_w) // 2,
@@ -193,55 +205,11 @@ def draw_modern_ui(
         ),
         skel_text,
         font=font_small,
-        fill=(255, 255, 255, 255),
-    )
-
-    # --- 导入视频按钮 (Import) ---
-    import_text = cfg.UI.import_button_text
-    import_bbox = draw.textbbox((0, 0), import_text, font=font_small)
-    import_text_w = import_bbox[2] - import_bbox[0]
-    import_w = max(110, import_text_w + 40)
-
-    import_x2 = skel_x1 - 15  # 在骨骼按钮左侧
-    import_x1 = import_x2 - import_w
-    import_y1 = margin_t
-    import_y2 = import_y1 + btn_height
-
-    # 检测 Hover
-    is_hover_import = False
-    if mouse_pos:
-        mx, my = mouse_pos
-        if import_x1 <= mx <= import_x2 and import_y1 <= my <= import_y2:
-            is_hover_import = True
-
-    # 蓝色系
-    if is_hover_import:
-        import_fill = (60, 130, 255, 230)
-        import_outline = (180, 210, 255, 180)
-    else:
-        import_fill = (40, 90, 180, 200)
-        import_outline = (255, 255, 255, 50)
-
-    draw.rounded_rectangle(
-        [import_x1, import_y1, import_x2, import_y2],
-        radius=btn_radius,
-        fill=import_fill,
-        outline=import_outline,
-        width=1,
-    )
-
-    draw.text(
-        (
-            import_x1 + (import_w - import_text_w) // 2,
-            import_y1 + (btn_height - (import_bbox[3] - import_bbox[1])) // 2 - 2,
-        ),
-        import_text,
-        font=font_small,
-        fill=(255, 255, 255, 255),
+        fill=skel_text_color,
     )
 
     # ==========================
-    # 3. 底部预测结果展示区 (卡片式)
+    # 3. 底部结果卡 / 状态卡
     # ==========================
     card_h = 100
     bottom_margin = 40
@@ -270,13 +238,16 @@ def draw_modern_ui(
         card_x2 = card_x1 + card_w
         card_y2 = card_y1 + card_h
 
-        # 磨砂玻璃背景
+        # 暖白磨砂玻璃背景
+        draw.rounded_rectangle(
+            [card_x1, card_y1 + 4, card_x2, card_y2 + 4], radius=20, fill=(200, 200, 190, 80)
+        )
         draw.rounded_rectangle(
             [card_x1, card_y1, card_x2, card_y2],
             radius=20,
-            fill=(20, 20, 20, 220),
-            outline=(255, 255, 255, 25),
-            width=1,
+            fill=color_surface,
+            outline=(200, 210, 220, 180),
+            width=2,
         )
 
         # 顶部：标签 和 概率数值
@@ -287,16 +258,16 @@ def draw_modern_ui(
             (card_x1 + 30, text_y_base),
             label,
             font=font_main,
-            fill=(255, 255, 255, 255),
+            fill=color_text,
         )
 
-        # 概率颜色
+        # 概率颜色 (更暖更柔和)
         if prob > 0.8:
-            prob_color = (100, 255, 100, 255)
+            prob_color = (100, 200, 120, 255)
         elif prob > 0.5:
-            prob_color = (255, 200, 50, 255)
+            prob_color = (240, 180, 80, 255)
         else:
-            prob_color = (255, 80, 80, 255)
+            prob_color = (230, 120, 110, 255)
 
         draw.text(
             (card_x2 - 30 - prob_w, text_y_base),
@@ -316,7 +287,7 @@ def draw_modern_ui(
         draw.rounded_rectangle(
             [bar_x1, bar_y1, bar_x2, bar_y2],
             radius=4,
-            fill=(60, 60, 60, 255),
+            fill=(220, 230, 240, 255),
         )
 
         # 进度条前景
@@ -342,11 +313,14 @@ def draw_modern_ui(
         card_y2 = card_y1 + card_h
 
         draw.rounded_rectangle(
+            [card_x1, card_y1 + 4, card_x2, card_y2 + 4], radius=20, fill=(200, 200, 190, 80)
+        )
+        draw.rounded_rectangle(
             [card_x1, card_y1, card_x2, card_y2],
             radius=20,
-            fill=(30, 30, 30, 200),
-            outline=(255, 255, 255, 20),
-            width=1,
+            fill=color_surface_dim,
+            outline=(200, 210, 220, 180),
+            width=2,
         )
 
         # 居中显示提示
@@ -357,7 +331,7 @@ def draw_modern_ui(
             ),
             hint_text,
             font=font_main,
-            fill=(180, 180, 180, 255),
+            fill=color_text_dim,
         )
 
     # 混合图层
@@ -368,80 +342,46 @@ def draw_modern_ui(
         rendered,
         (exit_x1, exit_y1, exit_x2, exit_y2),
         (skel_x1, skel_y1, skel_x2, skel_y2),
-        (import_x1, import_y1, import_x2, import_y2),
     )
+    draw.text((fps_x + 12, fps_y + 6), fps_text, font=font_small, fill=(100, 80, 70, 255))
 
+    # ==========================
+    # 2. 交互按钮区域 (右上角)
+    # ==========================
+    margin_r, margin_t = cfg.UI.exit_button_margin
+    btn_height = 44  # 稍微加大高度
+    btn_radius = 22  # 更圆滑的角
 
-def draw_offline_ui(
-    video_frame: "np.ndarray | None",
-    result: "Tuple[str, float] | None",
-    status_text: str,
-    font_main,
-    font_small,
-    mouse_pos: "Tuple[int, int] | None",
-    show_skeleton: bool,
-    target_size: "Tuple[int, int]",
-) -> "Tuple[np.ndarray, Tuple[int,int,int,int], Tuple[int,int,int,int], Tuple[int,int,int,int] | None]":
-    """
-    绘制离线推理界面。
-
-    布局：黑色背景 + 中央视频帧 + 右上角按钮（退出离线推理、骨骼切换）
-          + 底部结果卡（带 × 关闭按钮）或状态文字卡。
-
-    Returns:
-        (rendered_frame, exit_offline_rect, skel_rect, close_result_rect)
-        close_result_rect 在无结果时为 None。
-    """
-    tw, th = target_size
-
-    # 黑色背景画布
-    canvas = np.zeros((th, tw, 3), dtype=np.uint8)
-
-    # --- 中央视频帧 ---
-    if video_frame is not None:
-        vf_h, vf_w = video_frame.shape[:2]
-        max_vw = int(tw * 0.85)
-        max_vh = int(th * 0.72)
-        scale = min(max_vw / max(vf_w, 1), max_vh / max(vf_h, 1))
-        disp_w = max(1, int(vf_w * scale))
-        disp_h = max(1, int(vf_h * scale))
-        resized = cv2.resize(video_frame, (disp_w, disp_h))
-        vx = (tw - disp_w) // 2
-        vy = max(0, (th - disp_h) // 2 - 20)
-        vy_end = min(th, vy + disp_h)
-        vx_end = min(tw, vx + disp_w)
-        canvas[vy:vy_end, vx:vx_end] = resized[: vy_end - vy, : vx_end - vx]
-        cv2.rectangle(canvas, (vx - 1, vy - 1), (vx_end, vy_end), (255, 255, 255), 1)
-
-    # --- PIL 叠加层 ---
-    image = Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)).convert("RGBA")
-    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-
-    _margin = cfg.UI.exit_button_margin
-    margin_r: int = int(_margin[0])
-    margin_t: int = int(_margin[1])
-    btn_height = 44
-    btn_radius = 12
-
-    # --- 退出离线推理按钮（红色，最右）---
-    exit_text = "退出离线推理"
+    # --- 退出按钮 (Exit) ---
+    exit_text = cfg.UI.exit_button_text
     exit_bbox = draw.textbbox((0, 0), exit_text, font=font_small)
-    exit_text_w: int = int(exit_bbox[2] - exit_bbox[0])
-    exit_w: int = max(130, exit_text_w + 40)
-    exit_x1: int = tw - margin_r - exit_w
-    exit_y1: int = margin_t
-    exit_x2: int = exit_x1 + exit_w
-    exit_y2: int = exit_y1 + btn_height
+    exit_text_w = exit_bbox[2] - exit_bbox[0]
+    exit_w = max(90, exit_text_w + 40)
 
+    exit_x1 = w - margin_r - exit_w
+    exit_y1 = margin_t
+    exit_x2 = exit_x1 + exit_w
+    exit_y2 = exit_y1 + btn_height
+
+    # 检测 Hover
     is_hover_exit = False
     if mouse_pos:
         mx, my = mouse_pos
         if exit_x1 <= mx <= exit_x2 and exit_y1 <= my <= exit_y2:
             is_hover_exit = True
 
-    exit_fill = (255, 60, 60, 230) if is_hover_exit else (40, 40, 40, 160)
-    exit_outline = (255, 200, 200, 180) if is_hover_exit else (255, 255, 255, 40)
+    # 退出按钮：暖红渐变
+    if is_hover_exit:
+        exit_fill = (255, 120, 110, 240)
+        exit_outline = (255, 150, 140, 200)
+    else:
+        exit_fill = (255, 250, 245, 200)
+        exit_outline = (255, 200, 190, 150)
+
+    draw.rounded_rectangle(
+        [exit_x1, exit_y1 + 2, exit_x2, exit_y2 + 2], radius=btn_radius, fill=(180, 120, 110, 50)
+    )
+
     draw.rounded_rectangle(
         [exit_x1, exit_y1, exit_x2, exit_y2],
         radius=btn_radius,
@@ -449,6 +389,9 @@ def draw_offline_ui(
         outline=exit_outline,
         width=1,
     )
+
+    # 居中文字
+    exit_text_color = (255, 255, 255, 255) if is_hover_exit else (220, 80, 70, 255)
     draw.text(
         (
             exit_x1 + (exit_w - exit_text_w) // 2,
@@ -456,31 +399,40 @@ def draw_offline_ui(
         ),
         exit_text,
         font=font_small,
-        fill=(255, 255, 255, 255),
+        fill=exit_text_color,
     )
 
-    # --- 骨骼切换按钮（退出按钮左侧）---
+    # --- 骨骼切换按钮 (Skeleton) ---
     skel_text = "骨骼: 开" if show_skeleton else "骨骼: 关"
     skel_bbox = draw.textbbox((0, 0), skel_text, font=font_small)
-    skel_text_w: int = int(skel_bbox[2] - skel_bbox[0])
-    skel_w: int = max(110, skel_text_w + 40)
-    skel_x2: int = exit_x1 - 15
-    skel_x1: int = skel_x2 - skel_w
-    skel_y1: int = margin_t
-    skel_y2: int = skel_y1 + btn_height
+    skel_text_w = skel_bbox[2] - skel_bbox[0]
+    skel_w = max(110, skel_text_w + 40)
 
+    skel_x2 = exit_x1 - 15  # 间距
+    skel_x1 = skel_x2 - skel_w
+    skel_y1 = margin_t
+    skel_y2 = skel_y1 + btn_height
+
+    # 检测 Hover
     is_hover_skel = False
     if mouse_pos:
         mx, my = mouse_pos
         if skel_x1 <= mx <= skel_x2 and skel_y1 <= my <= skel_y2:
             is_hover_skel = True
 
+    # 绿色系 (开) / 暖白系 (关)
     if show_skeleton:
-        skel_fill = (0, 200, 120, 230) if is_hover_skel else (0, 160, 90, 200)
-        skel_outline = (200, 255, 200, 180) if is_hover_skel else (255, 255, 255, 50)
+        skel_fill = (130, 220, 160, 240) if is_hover_skel else (150, 230, 180, 220)
+        skel_outline = (180, 240, 200, 200) if is_hover_skel else (200, 250, 220, 150)
+        skel_text_color = (255, 255, 255, 255)
     else:
-        skel_fill = (70, 70, 70, 230) if is_hover_skel else (40, 40, 40, 160)
-        skel_outline = (255, 255, 255, 100) if is_hover_skel else (255, 255, 255, 40)
+        skel_fill = (240, 235, 230, 240) if is_hover_skel else (255, 250, 245, 200)
+        skel_outline = (220, 210, 200, 200) if is_hover_skel else (230, 220, 210, 150)
+        skel_text_color = (120, 110, 100, 255)
+
+    draw.rounded_rectangle(
+        [skel_x1, skel_y1 + 2, skel_x2, skel_y2 + 2], radius=btn_radius, fill=(150, 150, 140, 40)
+    )
 
     draw.rounded_rectangle(
         [skel_x1, skel_y1, skel_x2, skel_y2],
@@ -496,119 +448,136 @@ def draw_offline_ui(
         ),
         skel_text,
         font=font_small,
-        fill=(255, 255, 255, 255),
+        fill=skel_text_color,
     )
 
-    # --- 底部结果卡 或 状态文字卡 ---
+    # ==========================
+    # 3. 底部结果卡 / 状态卡
+    # ==========================
     card_h = 100
     bottom_margin = 40
-    close_result_rect = None
 
-    if result:
-        label, prob = result
+    if last_result:
+        label, prob = last_result
         prob_percent = int(prob * 100)
 
+        # 标签文字
         label_bbox = draw.textbbox((0, 0), label, font=font_main)
-        label_w: int = int(label_bbox[2] - label_bbox[0])
+        label_w = label_bbox[2] - label_bbox[0]
+
+        # 概率文字
         prob_text = f"{prob_percent}%"
         prob_bbox = draw.textbbox((0, 0), prob_text, font=font_main)
-        prob_w: int = int(prob_bbox[2] - prob_bbox[0])
+        prob_w = prob_bbox[2] - prob_bbox[0]
 
+        # 布局计算
         content_gap = 20
         min_card_w = 360
-        card_w: int = max(min_card_w, label_w + content_gap + prob_w + 60)
-        card_x1: int = (tw - card_w) // 2
-        card_y1: int = th - card_h - bottom_margin
-        card_x2: int = card_x1 + card_w
-        card_y2: int = card_y1 + card_h
+        total_content_w = max(min_card_w, label_w + content_gap + prob_w + 60)
 
+        card_w = total_content_w
+        card_x1 = (w - card_w) // 2
+        card_y1 = h - card_h - bottom_margin
+        card_x2 = card_x1 + card_w
+        card_y2 = card_y1 + card_h
+
+        # 暖白磨砂玻璃背景
+        draw.rounded_rectangle(
+            [card_x1, card_y1 + 4, card_x2, card_y2 + 4], radius=20, fill=(150, 140, 130, 50)
+        )
         draw.rounded_rectangle(
             [card_x1, card_y1, card_x2, card_y2],
             radius=20,
-            fill=(20, 20, 20, 220),
-            outline=(255, 255, 255, 25),
-            width=1,
+            fill=(255, 252, 248, 230),
+            outline=(240, 230, 220, 150),
+            width=2,
         )
 
+        # 顶部：标签 和 概率数值
+        # 左侧放 Label, 右侧放 概率
         text_y_base = card_y1 + 25
-        draw.text((card_x1 + 30, text_y_base), label, font=font_main, fill=(255, 255, 255, 255))
 
+        draw.text(
+            (card_x1 + 30, text_y_base),
+            label,
+            font=font_main,
+            fill=(70, 60, 50, 255),
+        )
+
+        # 概率颜色 (更暖更柔和)
         if prob > 0.8:
-            prob_color = (100, 255, 100, 255)
+            prob_color = (100, 200, 120, 255)
         elif prob > 0.5:
-            prob_color = (255, 200, 50, 255)
+            prob_color = (240, 180, 80, 255)
         else:
-            prob_color = (255, 80, 80, 255)
+            prob_color = (230, 120, 110, 255)
 
-        draw.text((card_x2 - 30 - prob_w, text_y_base), prob_text, font=font_main, fill=prob_color)
+        draw.text(
+            (card_x2 - 30 - prob_w, text_y_base),
+            prob_text,
+            font=font_main,
+            fill=prob_color,
+        )
 
+        # 底部：进度条
         bar_x1 = card_x1 + 30
         bar_x2 = card_x2 - 30
         bar_y1 = card_y2 - 30
         bar_y2 = bar_y1 + 8
-        draw.rounded_rectangle([bar_x1, bar_y1, bar_x2, bar_y2], radius=4, fill=(60, 60, 60, 255))
-        fill_w = int((bar_x2 - bar_x1) * prob)
+        bar_full_w = bar_x2 - bar_x1
+
+        # 进度条背景
+        draw.rounded_rectangle(
+            [bar_x1, bar_y1, bar_x2, bar_y2],
+            radius=4,
+            fill=(235, 230, 225, 255),
+        )
+
+        # 进度条前景
+        fill_w = int(bar_full_w * prob)
         if fill_w > 0:
             draw.rounded_rectangle(
-                [bar_x1, bar_y1, bar_x1 + fill_w, bar_y2], radius=4, fill=prob_color
+                [bar_x1, bar_y1, bar_x1 + fill_w, bar_y2],
+                radius=4,
+                fill=prob_color,
             )
 
-        # × 关闭按钮（结果卡右上角悬浮圆圈）
-        close_size = 32
-        close_x1: int = card_x2 - close_size // 2
-        close_y1: int = card_y1 - close_size // 2
-        close_x2: int = close_x1 + close_size
-        close_y2: int = close_y1 + close_size
-
-        is_hover_close = False
-        if mouse_pos:
-            mx, my = mouse_pos
-            if close_x1 <= mx <= close_x2 and close_y1 <= my <= close_y2:
-                is_hover_close = True
-
-        close_fill = (255, 80, 80, 230) if is_hover_close else (160, 50, 50, 200)
-        draw.ellipse([close_x1, close_y1, close_x2, close_y2], fill=close_fill)
-        x_text = "×"
-        x_bbox = draw.textbbox((0, 0), x_text, font=font_small)
-        draw.text(
-            (
-                close_x1 + (close_size - (x_bbox[2] - x_bbox[0])) // 2,
-                close_y1 + (close_size - (x_bbox[3] - x_bbox[1])) // 2 - 2,
-            ),
-            x_text,
-            font=font_small,
-            fill=(255, 255, 255, 255),
-        )
-        close_result_rect = (close_x1, close_y1, close_x2, close_y2)
-
     else:
-        # 状态文字卡（待机 / 推理中 / 错误）
-        hint_text = status_text if status_text else "请点击右上角导入视频..."
+        # 待机状态
+        hint_text = status_text if status_text else "等待手语动作..."
         hint_bbox = draw.textbbox((0, 0), hint_text, font=font_main)
-        hint_w: int = int(hint_bbox[2] - hint_bbox[0])
+        hint_w = hint_bbox[2] - hint_bbox[0]
+
         card_w = max(320, hint_w + 80)
-        card_h_s = 80
-        cx1 = (tw - card_w) // 2
-        cy1 = th - card_h_s - bottom_margin
-        cx2 = cx1 + card_w
-        cy2 = cy1 + card_h_s
+        card_h = 80
+        card_x1 = (w - card_w) // 2
+        card_y1 = h - card_h - bottom_margin
+        card_x2 = card_x1 + card_w
+        card_y2 = card_y1 + card_h
+
         draw.rounded_rectangle(
-            [cx1, cy1, cx2, cy2],
-            radius=20,
-            fill=(30, 30, 30, 200),
-            outline=(255, 255, 255, 20),
-            width=1,
+            [card_x1, card_y1 + 4, card_x2, card_y2 + 4], radius=20, fill=(150, 140, 130, 40)
         )
+        draw.rounded_rectangle(
+            [card_x1, card_y1, card_x2, card_y2],
+            radius=20,
+            fill=(255, 250, 245, 220),
+            outline=(240, 230, 220, 150),
+            width=2,
+        )
+
+        # 居中显示提示
         draw.text(
             (
-                cx1 + (card_w - hint_w) // 2,
-                cy1 + (card_h_s - (hint_bbox[3] - hint_bbox[1])) // 2 - 4,
+                card_x1 + (card_w - hint_w) // 2,
+                card_y1 + (card_h - (hint_bbox[3] - hint_bbox[1])) // 2 - 4,
             ),
             hint_text,
             font=font_main,
-            fill=(180, 180, 180, 255),
+            fill=(140, 130, 120, 255),
         )
 
+    # 混合图层
     out = Image.alpha_composite(image, overlay)
     rendered = cv2.cvtColor(np.array(out), cv2.COLOR_RGBA2BGR)
 
@@ -616,7 +585,6 @@ def draw_offline_ui(
         rendered,
         (exit_x1, exit_y1, exit_x2, exit_y2),
         (skel_x1, skel_y1, skel_x2, skel_y2),
-        close_result_rect,
     )
 
 
@@ -726,7 +694,7 @@ def draw_skeleton(frame: np.ndarray, keypoints: np.ndarray) -> np.ndarray:
 
 
 def on_mouse(event: int, x: int, y: int, flags: int, params: Any):
-    """鼠标回调：检测是否点击退出按钮、骨骼切换按钮或导入视频按钮。"""
+    """鼠标回调：检测是否点击退出按钮或骨骼切换按钮。"""
     if params is None:
         return
 
@@ -752,173 +720,6 @@ def on_mouse(event: int, x: int, y: int, flags: int, params: Any):
         if x1 <= x <= x2 and y1 <= y <= y2:
             params["show_skeleton"] = not params.get("show_skeleton", False)
             return
-
-    # 检测导入视频按钮
-    import_rect = params.get("import_rect")
-    if import_rect:
-        x1, y1, x2, y2 = import_rect
-        if x1 <= x <= x2 and y1 <= y <= y2:
-            params["import_video"] = True
-
-
-def on_offline_mouse(event: int, x: int, y: int, flags: int, params: Any):
-    """离线推理界面鼠标回调：检测退出、骨骼切换、×关闭结果按钮。"""
-    if params is None:
-        return
-
-    if event == cv2.EVENT_MOUSEMOVE:
-        params["mouse_pos"] = (x, y)
-
-    if event != cv2.EVENT_LBUTTONDOWN:
-        return
-
-    # 退出离线推理按钮
-    exit_rect = params.get("exit_offline_rect")
-    if exit_rect:
-        x1, y1, x2, y2 = exit_rect
-        if x1 <= x <= x2 and y1 <= y <= y2:
-            params["exit_offline"] = True
-            return
-
-    # 骨骼切换按钮
-    skel_rect = params.get("skel_rect")
-    if skel_rect:
-        x1, y1, x2, y2 = skel_rect
-        if x1 <= x <= x2 and y1 <= y <= y2:
-            params["show_skeleton"] = not params.get("show_skeleton", False)
-            return
-
-    # × 关闭结果按钮
-    close_rect = params.get("close_result_rect")
-    if close_rect:
-        x1, y1, x2, y2 = close_rect
-        if x1 <= x <= x2 and y1 <= y <= y2:
-            params["close_result"] = True
-
-
-def run_offline_mode(
-    models: List[torch.nn.Module],
-    preprocess_helper: PreprocessHelper,
-    stats: Dict[str, Any] | None,
-    device: torch.device,
-    id_to_label: Dict[int, str],
-    font_main,
-    font_small,
-    window_name: str,
-    target_size: Tuple[int, int],
-) -> None:
-    """
-    独立的离线推理界面主循环。
-
-    流程：
-      1. 弹出文件对话框，用户取消则直接返回。
-      2. 在后台线程中执行视频推理（_run_offline_inference）。
-      3. 在主线程中循环播放视频帧，显示推理进度和最终结果。
-      4. 用户点击"退出离线推理"按钮后返回，调用方负责恢复实时推理鼠标回调。
-    """
-    video_path = _open_file_dialog()
-    if not video_path:
-        return  # 用户取消，直接返回实时推理
-
-    tw, th = target_size
-
-    # 离线推理状态（跨线程共享）
-    offline_state: Dict[str, Any] = {
-        "status": "正在初始化...",
-        "result": None,
-        "done": False,
-    }
-
-    # 启动后台推理线程
-    t = threading.Thread(
-        target=_run_offline_inference,
-        args=(video_path, models, preprocess_helper, stats, device, id_to_label, offline_state),
-        daemon=True,
-    )
-    t.start()
-
-    # 打开视频用于循环播放
-    cap_vid = cv2.VideoCapture(video_path)
-    vid_fps = cap_vid.get(cv2.CAP_PROP_FPS)
-    if vid_fps <= 0:
-        vid_fps = 30.0
-    frame_delay = max(1, int(1000 / vid_fps))  # waitKey 毫秒数
-
-    # 离线界面鼠标状态
-    offline_mouse: Dict[str, Any] = {
-        "mouse_pos": None,
-        "show_skeleton": False,
-        "exit_offline": False,
-        "close_result": False,
-        "exit_offline_rect": None,
-        "skel_rect": None,
-        "close_result_rect": None,
-    }
-    cv2.setMouseCallback(window_name, on_offline_mouse, offline_mouse)
-
-    offline_result: Tuple[str, float] | None = None
-    current_video_frame: np.ndarray | None = None
-
-    try:
-        while True:
-            # 读取下一帧，到结尾则循环播放
-            ret, vframe = cap_vid.read()
-            if not ret:
-                cap_vid.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                ret, vframe = cap_vid.read()
-            if ret:
-                current_video_frame = vframe
-
-            # 同步推理结果
-            if offline_state.get("done") and offline_result is None:
-                if offline_state.get("result"):
-                    offline_result = offline_state["result"]
-
-            # 处理 × 关闭结果
-            if offline_mouse.get("close_result"):
-                offline_mouse["close_result"] = False
-                offline_result = None
-
-            # 处理退出按钮
-            if offline_mouse.get("exit_offline"):
-                break
-
-            # 确定状态文字
-            if offline_result:
-                status = ""
-            elif offline_state.get("done"):
-                status = offline_state.get("status", "")
-            else:
-                status = offline_state.get("status", "正在处理视频...")
-
-            # 渲染离线界面
-            rendered, exit_rect, skel_rect, close_rect = draw_offline_ui(
-                video_frame=current_video_frame,
-                result=offline_result,
-                status_text=status,
-                font_main=font_main,
-                font_small=font_small,
-                mouse_pos=offline_mouse.get("mouse_pos"),
-                show_skeleton=offline_mouse.get("show_skeleton", False),
-                target_size=(tw, th),
-            )
-
-            # 更新鼠标回调区域
-            offline_mouse["exit_offline_rect"] = exit_rect
-            offline_mouse["skel_rect"] = skel_rect
-            offline_mouse["close_result_rect"] = close_rect
-
-            cv2.imshow(window_name, rendered)
-
-            key = cv2.waitKey(frame_delay) & 0xFF
-            if key == ord("q"):
-                break
-
-            # 窗口被用户关闭
-            if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
-                break
-    finally:
-        cap_vid.release()
 
 
 def prepare_sequence(
@@ -1042,129 +843,12 @@ def _ensemble_predict(
     return int(top_idx.item()), float(top_prob.item())
 
 
-def _open_file_dialog() -> str | None:
-    """
-    在独立线程中弹出系统文件选择对话框，选择视频文件。
-    Windows 下使用 tkinter.filedialog；失败时返回 None。
-
-    Returns:
-        选中的文件路径字符串，或 None（用户取消/失败）。
-    """
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-
-        root = tk.Tk()
-        root.withdraw()  # 隐藏 tk 主窗口
-        root.attributes("-topmost", True)  # 置顶对话框
-        path = filedialog.askopenfilename(
-            title="选择视频文件",
-            filetypes=[
-                ("视频文件", "*.mp4 *.avi *.mov *.mkv *.wmv *.flv"),
-                ("所有文件", "*.*"),
-            ],
-        )
-        root.destroy()
-        return path if path else None
-    except Exception as e:
-        print(f"文件对话框打开失败: {e}")
-        return None
-
-
-def _run_offline_inference(
-    video_path: str,
-    models: List[torch.nn.Module],
-    preprocess_helper,
-    stats,
-    device: torch.device,
-    id_to_label: Dict[int, str],
-    result_holder: Dict[str, Any],
-) -> None:
-    """
-    离线视频推理：逐帧提取关键点，使用4模型集成推理，结果写入 result_holder。
-
-    Args:
-        video_path: 视频文件路径。
-        models: 集成模型列表。
-        preprocess_helper: 几何归一化处理器。
-        stats: Z-Score 统计量（可为 None）。
-        device: 推理设备。
-        id_to_label: 类别 ID → 标签映射。
-        result_holder: 用于跨线程传递结果的共享字典：
-            - "status": str，当前处理状态描述
-            - "result": Tuple[str, float] | None，最终推理结果
-            - "done": bool，处理是否完成
-    """
-    result_holder["status"] = "正在打开视频..."
-    result_holder["result"] = None
-    result_holder["done"] = False
-
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        result_holder["status"] = f"无法打开视频: {os.path.basename(video_path)}"
-        result_holder["done"] = True
-        return
-
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    extractor = KeypointExtractor(use_video_mode=True)
-    frame_buffer: Deque[np.ndarray] = deque(maxlen=cfg.SEQUENCE.max_frames)
-
-    try:
-        frame_idx = 0
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            frame_idx += 1
-            # 每5帧更新一次进度状态，减少字符串分配
-            if frame_idx % 5 == 0 or frame_idx == 1:
-                pct = int(frame_idx / max(total_frames, 1) * 100)
-                result_holder["status"] = f"正在处理视频... {pct}%"
-
-            timestamp_ms = frame_idx * 33  # 假设约 30fps
-
-            keypoints, valid_mask, has_hands = extractor.extract_frame_optimized(
-                frame, timestamp_ms
-            )
-
-            if has_hands and keypoints is not None:
-                valid_count = int(np.sum(valid_mask)) if valid_mask is not None else 0
-                if valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame:
-                    frame_buffer.append(keypoints)
-
-        result_holder["status"] = "正在推理中..."
-
-        if len(frame_buffer) < 3:
-            result_holder["status"] = "视频中未检测到足够手部关键点"
-            result_holder["done"] = True
-            return
-
-        with torch.no_grad():
-            inputs, lengths = prepare_sequence(frame_buffer, preprocess_helper, stats)
-            inputs = inputs.to(device)
-            lengths = lengths.to(device)
-            top_idx, top_prob = _ensemble_predict(models, inputs, lengths)
-
-        pred_label = id_to_label.get(top_idx, str(top_idx))
-        result_holder["result"] = (pred_label, top_prob)
-        result_holder["status"] = f"识别结果: {pred_label} ({int(top_prob * 100)}%)"
-
-    except Exception as e:
-        result_holder["status"] = f"推理出错: {e}"
-    finally:
-        cap.release()
-        extractor.close()
-        result_holder["done"] = True
-
-
 def run_realtime_inference(camera_index: int | str | None = None) -> None:
     """
     使用摄像头或视频文件与预训练模型进行实时手语分类（4模型集成推理）。
 
-    新增功能：
-    - 4模型集成推理（softmax 概率平均），对应 cfg.EVALUATION.ensemble_model_paths。
-    - UI 右上角新增"导入视频"按钮，点击后弹出文件对话框进行离线推理。
+    # 新增功能：
+    #   - 4模型集成推理（softmax 概率平均），对应 cfg.EVALUATION.ensemble_model_paths。
 
     Args:
         camera_index: 摄像头索引(int)或视频文件路径(str)，默认使用 cfg.INFERENCE.camera_index。
@@ -1212,11 +896,9 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
     mouse_state: Dict[str, Any] = {
         "exit_rect": None,
         "skel_rect": None,
-        "import_rect": None,
         "quit": False,
         "show_skeleton": False,
         "mouse_pos": None,
-        "import_video": False,  # 点击"导入视频"后置 True
     }
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     cv2.setMouseCallback(window_name, on_mouse, mouse_state)
@@ -1267,27 +949,6 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
                 frame_count += 1
                 timestamp_ms = int(time.time() * 1000)
 
-                # ---- 处理"导入视频"按钮点击：进入独立离线推理界面 ----
-                if mouse_state.get("import_video"):
-                    mouse_state["import_video"] = False
-                    win_h, win_w = frame.shape[:2]
-                    # 阻塞调用：run_offline_mode 拥有自己的 while 循环，返回后恢复实时推理
-                    run_offline_mode(
-                        models=models,
-                        preprocess_helper=preprocess_helper,
-                        stats=stats,
-                        device=device,
-                        id_to_label=id_to_label,
-                        font_main=font_main,
-                        font_small=font_small,
-                        window_name=window_name,
-                        target_size=(win_w, win_h),
-                    )
-                    # 恢复实时推理鼠标回调，重置状态
-                    cv2.setMouseCallback(window_name, on_mouse, mouse_state)
-                    frame_buffer.clear()
-                    last_result = None
-
                 # ---- 实时推理逻辑 ----
                 keypoints, valid_mask, has_hands = extractor.extract_frame_optimized(
                     frame, timestamp_ms
@@ -1332,7 +993,7 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
                 if mouse_state.get("show_skeleton") and keypoints is not None:
                     display_frame = draw_skeleton(display_frame, keypoints)
 
-                overlay, exit_rect, skel_rect, import_rect = draw_modern_ui(
+                overlay, exit_rect, skel_rect = draw_modern_ui(
                     display_frame,
                     last_result,
                     fps,
@@ -1344,7 +1005,6 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
                 )
                 mouse_state["exit_rect"] = exit_rect
                 mouse_state["skel_rect"] = skel_rect
-                mouse_state["import_rect"] = import_rect
 
                 # 检查窗口是否被用户关闭
                 if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
@@ -1364,6 +1024,423 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
 
 
 import argparse
+
+
+def _load_shared_resources():
+    """
+    加载推理所需的共享资源（模型、字体、预处理等）。
+    供 run_launcher / run_realtime_inference / run_offline_inference_standalone 复用。
+
+    Returns:
+        (device, id_to_label, models, extractor, preprocess_helper, stats, font_main, font_small)
+    """
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() and cfg.TRAINING.device == "cuda" else "cpu"
+    )
+    print(f"当前使用的设备: {device}")
+
+    id_to_label = load_id_to_label_map(cfg.PATHS.label_map_path)
+    if not id_to_label:
+        print("警告: 标签映射为空，将直接输出类别 ID。")
+
+    try:
+        models = _load_ensemble_models(device)
+    except FileNotFoundError as e:
+        print(f"错误: {e}")
+        raise
+
+    extractor = KeypointExtractor(use_video_mode=True)
+    preprocess_helper = PreprocessHelper(max_frames=cfg.SEQUENCE.max_frames)
+
+    stats = None
+    if cfg.PREPROCESS.enable_standardize:
+        if os.path.exists(cfg.PREPROCESS.feature_stats_path):
+            stats = load_feature_stats(cfg.PREPROCESS.feature_stats_path)
+            print(f"已加载标准化统计量: {cfg.PREPROCESS.feature_stats_path}")
+        else:
+            print("警告: 启用了标准化但未找到统计量文件，推理时将跳过标准化。")
+
+    font_main = load_chinese_font(cfg.UI.font_size)
+    font_small = load_chinese_font(cfg.UI.font_small_size)
+
+    return device, id_to_label, models, extractor, preprocess_helper, stats, font_main, font_small
+
+
+def _draw_launcher_ui(
+    width: int,
+    height: int,
+    font_main,
+    font_small,
+    mouse_pos: "Tuple[int, int] | None",
+) -> "Tuple[np.ndarray, Tuple[int,int,int,int], Tuple[int,int,int,int]]":
+    """
+    绘制启动选择界面 (简约、温馨、美观、充满人文关怀的暖色调)。
+
+    Returns:
+        (rendered, realtime_btn_rect, offline_btn_rect)
+    """
+    # 暖色背景: 浅米色 (B, G, R)
+    canvas = np.full((height, width, 3), (237, 246, 253), dtype=np.uint8)
+    image = Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)).convert("RGBA")
+    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    cx = width // 2
+    cy = height // 2
+
+    # 标题 (深棕色/暖黑色)
+    title = "手语识别系统"
+    title_bbox = draw.textbbox((0, 0), title, font=font_main)
+    title_w = title_bbox[2] - title_bbox[0]
+    draw.text(
+        (cx - title_w // 2, cy - 130),
+        title,
+        font=font_main,
+        fill=(80, 65, 55, 255),
+    )
+
+    # 副标题 (柔和的中性棕色)
+    subtitle = "请选择推理模式"
+    sub_bbox = draw.textbbox((0, 0), subtitle, font=font_small)
+    sub_w = sub_bbox[2] - sub_bbox[0]
+    draw.text(
+        (cx - sub_w // 2, cy - 80),
+        subtitle,
+        font=font_small,
+        fill=(140, 120, 110, 220),
+    )
+
+    btn_w, btn_h, btn_gap = 200, 56, 40
+    btn_radius = 28  # 更圆润的按钮
+
+    # --- 实时推理按钮 (暖珊瑚色) ---
+    rt_x1 = cx - btn_w - btn_gap // 2
+    rt_x2 = rt_x1 + btn_w
+    rt_y1 = cy - btn_h // 2 + 10
+    rt_y2 = rt_y1 + btn_h
+
+    is_hover_rt = False
+    if mouse_pos:
+        mx, my = mouse_pos
+        if rt_x1 <= mx <= rt_x2 and rt_y1 <= my <= rt_y2:
+            is_hover_rt = True
+
+    # 暖珊瑚色 (浅橙红)
+    rt_fill = (255, 150, 130, 240) if is_hover_rt else (255, 170, 150, 220)
+    rt_outline = (255, 130, 110, 200) if is_hover_rt else (255, 190, 170, 150)
+
+    # 按钮阴影 (简单的向下偏移)
+    draw.rounded_rectangle(
+        [rt_x1, rt_y1 + 4, rt_x2, rt_y2 + 4], radius=btn_radius, fill=(200, 130, 110, 60)
+    )
+    draw.rounded_rectangle(
+        [rt_x1, rt_y1, rt_x2, rt_y2], radius=btn_radius, fill=rt_fill, outline=rt_outline, width=2
+    )
+
+    rt_text = "实时推理"
+    rt_bbox = draw.textbbox((0, 0), rt_text, font=font_small)
+    rt_tw = rt_bbox[2] - rt_bbox[0]
+    draw.text(
+        (rt_x1 + (btn_w - rt_tw) // 2, rt_y1 + (btn_h - (rt_bbox[3] - rt_bbox[1])) // 2 - 2),
+        rt_text,
+        font=font_small,
+        fill=(255, 255, 255, 255),
+    )
+
+    # --- 离线推理按钮 (暖阳黄/沙金色) ---
+    of_x1 = cx + btn_gap // 2
+    of_x2 = of_x1 + btn_w
+    of_y1 = rt_y1
+    of_y2 = rt_y2
+
+    is_hover_of = False
+    if mouse_pos:
+        mx, my = mouse_pos
+        if of_x1 <= mx <= of_x2 and of_y1 <= my <= of_y2:
+            is_hover_of = True
+
+    of_fill = (245, 195, 120, 240) if is_hover_of else (245, 210, 140, 220)
+    of_outline = (230, 170, 90, 200) if is_hover_of else (245, 220, 160, 150)
+
+    # 按钮阴影
+    draw.rounded_rectangle(
+        [of_x1, of_y1 + 4, of_x2, of_y2 + 4], radius=btn_radius, fill=(200, 160, 100, 60)
+    )
+    draw.rounded_rectangle(
+        [of_x1, of_y1, of_x2, of_y2], radius=btn_radius, fill=of_fill, outline=of_outline, width=2
+    )
+
+    of_text = "离线推理"
+    of_bbox = draw.textbbox((0, 0), of_text, font=font_small)
+    of_tw = of_bbox[2] - of_bbox[0]
+    draw.text(
+        (of_x1 + (btn_w - of_tw) // 2, of_y1 + (btn_h - (of_bbox[3] - of_bbox[1])) // 2 - 2),
+        of_text,
+        font=font_small,
+        fill=(255, 255, 255, 255),
+    )
+
+    # 底部提示
+    hint = "按 Q 退出"
+    hint_bbox = draw.textbbox((0, 0), hint, font=font_small)
+    hint_w = hint_bbox[2] - hint_bbox[0]
+    draw.text(
+        (cx - hint_w // 2, rt_y2 + 40),
+        hint,
+        font=font_small,
+        fill=(160, 145, 135, 180),
+    )
+
+    out = Image.alpha_composite(image, overlay)
+    rendered = cv2.cvtColor(np.array(out), cv2.COLOR_RGBA2BGR)
+    return rendered, (rt_x1, rt_y1, rt_x2, rt_y2), (of_x1, of_y1, of_x2, of_y2)
+
+
+def run_launcher() -> None:
+    """
+    主入口：显示模式选择界面，用户选择实时推理或离线推理后跳转。
+    """
+    _configure_windows_console()
+
+    try:
+        device, id_to_label, models, extractor, preprocess_helper, stats, font_main, font_small = (
+            _load_shared_resources()
+        )
+    except FileNotFoundError:
+        return
+
+    window_name = "Sign Language Recognition System"
+    win_w, win_h = 800, 480
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, win_w, win_h)
+
+    launcher_mouse: Dict[str, Any] = {
+        "mouse_pos": None,
+        "choice": None,  # "realtime" | "offline"
+    }
+
+    def _on_launcher_mouse(event, x, y, flags, params):
+        if event == cv2.EVENT_MOUSEMOVE:
+            params["mouse_pos"] = (x, y)
+        if event == cv2.EVENT_LBUTTONDOWN:
+            rt_rect = params.get("rt_rect")
+            of_rect = params.get("of_rect")
+            if rt_rect:
+                x1, y1, x2, y2 = rt_rect
+                if x1 <= x <= x2 and y1 <= y <= y2:
+                    params["choice"] = "realtime"
+                    return
+            if of_rect:
+                x1, y1, x2, y2 = of_rect
+                if x1 <= x <= x2 and y1 <= y <= y2:
+                    params["choice"] = "offline"
+
+    cv2.setMouseCallback(window_name, _on_launcher_mouse, launcher_mouse)
+
+    try:
+        while True:
+            rendered, rt_rect, of_rect = _draw_launcher_ui(
+                win_w, win_h, font_main, font_small, launcher_mouse.get("mouse_pos")
+            )
+            launcher_mouse["rt_rect"] = rt_rect
+            launcher_mouse["of_rect"] = of_rect
+
+            cv2.imshow(window_name, rendered)
+
+            key = cv2.waitKey(16) & 0xFF
+            if key == ord("q"):
+                break
+
+            if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+                break
+
+            choice = launcher_mouse.get("choice")
+            if choice == "realtime":
+                # 直接在同一窗口运行实时推理
+                _run_realtime_in_window(
+                    window_name=window_name,
+                    models=models,
+                    extractor=extractor,
+                    preprocess_helper=preprocess_helper,
+                    stats=stats,
+                    device=device,
+                    id_to_label=id_to_label,
+                    font_main=font_main,
+                    font_small=font_small,
+                )
+                launcher_mouse["choice"] = None
+                # 返回启动界面
+                cv2.resizeWindow(window_name, win_w, win_h)
+                cv2.setMouseCallback(window_name, _on_launcher_mouse, launcher_mouse)
+            elif choice == "offline":
+                _run_offline_in_window(
+                    window_name=window_name,
+                    models=models,
+                    preprocess_helper=preprocess_helper,
+                    stats=stats,
+                    device=device,
+                    id_to_label=id_to_label,
+                    font_main=font_main,
+                    font_small=font_small,
+                    win_w=win_w,
+                    win_h=win_h,
+                )
+                launcher_mouse["choice"] = None
+                cv2.resizeWindow(window_name, win_w, win_h)
+                cv2.setMouseCallback(window_name, _on_launcher_mouse, launcher_mouse)
+    finally:
+        extractor.close()
+        cv2.destroyAllWindows()
+        print("已退出。")
+
+
+def _run_realtime_in_window(
+    window_name: str,
+    models: List[torch.nn.Module],
+    extractor,
+    preprocess_helper,
+    stats,
+    device: torch.device,
+    id_to_label: Dict[int, str],
+    font_main,
+    font_small,
+) -> None:
+    """在给定窗口中运行实时推理，退出后返回。"""
+    cam_source = cfg.INFERENCE.camera_index
+    cap = cv2.VideoCapture(cam_source)
+
+    if isinstance(cam_source, int):
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, cfg.INFERENCE.camera_width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg.INFERENCE.camera_height)
+        cap.set(cv2.CAP_PROP_FPS, cfg.INFERENCE.camera_fps)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+    if not cap.isOpened():
+        print(f"错误: 无法打开摄像头 {cam_source}")
+        return
+
+    actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cv2.resizeWindow(window_name, actual_w, actual_h)
+
+    mouse_state: Dict[str, Any] = {
+        "exit_rect": None,
+        "skel_rect": None,
+        "quit": False,
+        "show_skeleton": False,
+        "mouse_pos": None,
+    }
+    cv2.setMouseCallback(window_name, on_mouse, mouse_state)
+
+    frame_buffer: Deque[np.ndarray] = deque(maxlen=cfg.SEQUENCE.max_frames)
+    last_result: Tuple[str, float] | None = None
+    start_time = time.time()
+    frame_count = 0
+    status_text = "初始化..."
+
+    try:
+        with torch.no_grad():
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                if isinstance(cam_source, int):
+                    frame = cv2.flip(frame, 1)
+
+                frame_count += 1
+                timestamp_ms = int(time.time() * 1000)
+
+                keypoints, valid_mask, has_hands = extractor.extract_frame_optimized(
+                    frame, timestamp_ms
+                )
+
+                if not has_hands:
+                    last_result = None
+                    status_text = "未检测到手部骨骼点信息"
+                    keypoints = None
+                else:
+                    valid_count = int(np.sum(valid_mask)) if valid_mask is not None else 0
+                    keypoints_valid = valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame
+
+                    if keypoints_valid and keypoints is not None:
+                        frame_buffer.append(keypoints)
+                        if frame_buffer and (frame_count % cfg.INFERENCE.inference_interval == 0):
+                            try:
+                                inputs, lengths = prepare_sequence(
+                                    frame_buffer, preprocess_helper, stats
+                                )
+                                inputs = inputs.to(device)
+                                lengths = lengths.to(device)
+                                top_idx, top_prob = _ensemble_predict(models, inputs, lengths)
+                                pred_label = id_to_label.get(top_idx, str(top_idx))
+                                last_result = (pred_label, top_prob)
+                            except Exception:
+                                last_result = None
+                    else:
+                        status_text = "关键点数量不足"
+
+                if has_hands and not last_result:
+                    status_text = "正在分析..."
+
+                elapsed = time.time() - start_time
+                fps = frame_count / max(elapsed, 1e-5)
+
+                display_frame = frame.copy()
+                if mouse_state.get("show_skeleton") and keypoints is not None:
+                    display_frame = draw_skeleton(display_frame, keypoints)
+
+                overlay, exit_rect, skel_rect = draw_modern_ui(
+                    display_frame,
+                    last_result,
+                    fps,
+                    font_main,
+                    font_small,
+                    mouse_state.get("show_skeleton", False),
+                    mouse_state.get("mouse_pos"),
+                    status_text=status_text,
+                )
+                mouse_state["exit_rect"] = exit_rect
+                mouse_state["skel_rect"] = skel_rect
+
+                if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+                    break
+
+                cv2.imshow(window_name, overlay)
+
+                if (cv2.waitKey(1) & 0xFF == ord("q")) or mouse_state.get("quit"):
+                    break
+    finally:
+        cap.release()
+        print("已退出实时推理。")
+
+
+def _run_offline_in_window(
+    window_name: str,
+    models: List[torch.nn.Module],
+    preprocess_helper,
+    stats,
+    device: torch.device,
+    id_to_label: Dict[int, str],
+    font_main,
+    font_small,
+    win_w: int,
+    win_h: int,
+) -> None:
+    """在给定窗口中运行离线推理模式，退出后返回。"""
+    from src.model.offline_inference import run_offline_mode  # noqa: PLC0415
+
+    run_offline_mode(
+        models=models,
+        preprocess_helper=preprocess_helper,
+        stats=stats,
+        device=device,
+        id_to_label=id_to_label,
+        font_main=font_main,
+        font_small=font_small,
+        window_name=window_name,
+        target_size=(win_w, win_h),
+    )
 
 
 def parse_args():
