@@ -29,7 +29,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 import src.config as cfg
 from src.core.labels import load_id_to_label_map
 from src.model.dataloader import load_feature_stats, preprocess_keypoints
-from src.data_process.preprocess_wlasl import KeypointExtractor, PreprocessHelper
+from src.data_process.preprocess_wlasl import (
+    KeypointExtractor,
+    ParallelKeypointExtractor,
+    PreprocessHelper,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -114,7 +118,10 @@ def _run_offline_inference(
     state: Dict[str, Any],
 ) -> None:
     """
-    后台推理线程：逐帧提取关键点 → 集成推理 → 写入 state。
+    后台推理线程：并行提取关键点 → 集成推理 → 写入 state。
+
+    使用 ThreadPoolExecutor + IMAGE 模式的 KeypointExtractor 并行处理帧，
+    提取完成后按帧序合并结果。当 parallel_workers=1 时回退到单线程顺序提取。
 
     state 字段：
       status  : 进度提示文字
@@ -127,50 +134,88 @@ def _run_offline_inference(
 
     state["keypoints_by_frame"] = []
 
-    extractor = KeypointExtractor(use_video_mode=True)
+    # ── 1. 读取全部视频帧到内存 ────────────────────────────────────────────
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         state["status"] = "错误: 无法打开视频文件"
         state["done"] = True
-        extractor.close()
         return
 
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    frame_idx = 0
-    keypoints_seq = []
+    state["status"] = "正在读取视频帧..."
+    all_frames: List[np.ndarray] = []
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        all_frames.append(frame)
+    cap.release()
 
-    try:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frame_idx += 1
-            timestamp_ms = int((frame_idx / max(cap.get(cv2.CAP_PROP_FPS), 1)) * 1000)
+    total_frames = len(all_frames)
+    if total_frames == 0:
+        state["status"] = "错误: 视频无有效帧"
+        state["done"] = True
+        return
 
-            kp, valid_mask, has_hands = extractor.extract_frame_optimized(frame, timestamp_ms)
-            if has_hands and kp is not None:
-                valid_count = int(np.sum(valid_mask)) if valid_mask is not None else 0
-                if valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame:
-                    keypoints_seq.append(kp)
-                    state["keypoints_by_frame"].append(kp)
-                else:
-                    state["keypoints_by_frame"].append(None)
-            else:
-                state["keypoints_by_frame"].append(None)
+    # ── 2. 关键点提取（并行或顺序）──────────────────────────────────────────
+    parallel_extractor = ParallelKeypointExtractor(cfg.INFERENCE.parallel_workers)
+    num_workers = parallel_extractor.num_workers
 
-            if total_frames > 0:
-                pct = int(frame_idx / total_frames * 100)
+    if num_workers <= 1:
+        # ── 单线程顺序提取（使用 VIDEO 模式以获取跟踪优势）──
+        parallel_extractor.close()  # 不需要线程池，释放
+        extractor = KeypointExtractor(use_video_mode=True)
+        fps_val = cv2.VideoCapture(video_path)
+        fps = fps_val.get(cv2.CAP_PROP_FPS)
+        fps_val.release()
+        if fps <= 0:
+            fps = 30.0
+
+        extraction_results: List[Tuple[np.ndarray | None, np.ndarray | None, bool]] = []
+        try:
+            for idx, frame in enumerate(all_frames):
+                timestamp_ms = int(((idx + 1) / fps) * 1000)
+                kp, valid_mask, has_hands = extractor.extract_frame_optimized(frame, timestamp_ms)
+                extraction_results.append((kp, valid_mask, has_hands))
+                pct = int((idx + 1) / total_frames * 100)
                 state["status"] = f"正在提取特征... {pct}%"
+        finally:
+            extractor.close()
+    else:
+        # ── 多线程并行提取（IMAGE 模式，无状态，可安全并行）──
+        def _progress_cb(completed: int, total: int) -> None:
+            pct = int(completed / total * 100)
+            state["status"] = f"正在提取特征... {pct}%（{num_workers}线程并行）"
 
-    finally:
-        cap.release()
-        extractor.close()
+        try:
+            extraction_results = parallel_extractor.extract_batch(
+                all_frames, progress_callback=_progress_cb
+            )
+        finally:
+            parallel_extractor.close()
+
+    # ── 3. 按帧序合并结果 ─────────────────────────────────────────────────
+    keypoints_seq: List[np.ndarray] = []
+    keypoints_by_frame: List[np.ndarray | None] = []
+
+    for kp, valid_mask, has_hands in extraction_results:
+        if has_hands and kp is not None:
+            valid_count = int(np.sum(valid_mask)) if valid_mask is not None else 0
+            if valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame:
+                keypoints_seq.append(kp)
+                keypoints_by_frame.append(kp)
+            else:
+                keypoints_by_frame.append(None)
+        else:
+            keypoints_by_frame.append(None)
+
+    state["keypoints_by_frame"] = keypoints_by_frame
 
     if len(keypoints_seq) < 5:
         state["status"] = "有效帧不足，无法推理"
         state["done"] = True
         return
 
+    # ── 4. 模型推理 ───────────────────────────────────────────────────────
     state["status"] = "正在推理..."
 
     try:

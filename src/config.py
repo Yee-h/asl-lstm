@@ -332,6 +332,8 @@ class InferenceConfig:
     camera_fps: int
     # 推理间隔（每 N 帧推理一次）
     inference_interval: int
+    # 离线推理并行关键点提取 worker 数（0=自动取 cpu_count-1，1=禁用并行）
+    parallel_workers: int
 
 
 @dataclass(frozen=True)
@@ -586,6 +588,7 @@ INFERENCE = InferenceConfig(
     camera_height=480,  # 摄像头高度
     camera_fps=30,  # 摄像头帧率
     inference_interval=3,  # 推理间隔
+    parallel_workers=0,  # 0=自动（cpu_count-1），1=禁用并行
 )
 
 

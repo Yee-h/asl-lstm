@@ -347,7 +347,8 @@ uv run python main.py
 ### 实时推理（Real-time Inference）
 
 - 调用摄像头（默认索引 0，640×480@30fps）
-- 后台异步提取 MediaPipe 关键点，**手部优先检测**策略优化速度
+- **多线程并行关键点提取**：使用 `ParallelKeypointExtractor` 类，自动检测 CPU 核心数（`cpu_count - 1`），以流水线模式并行提取 MediaPipe 关键点
+- **手部优先检测**策略优化速度
 - 每 3 帧执行一次集成推理
 - 界面左上角显示实时 FPS
 - 底部温馨毛玻璃卡片显示识别结果与概率条
@@ -356,7 +357,8 @@ uv run python main.py
 ### 离线推理（Offline Inference）
 
 - 通过文件对话框导入 `.mp4` 等格式视频文件
-- 全量读取视频帧 → 关键点提取 → 预处理 → 集成预测
+- **多线程并行关键点提取**：与实时推理共享 `ParallelKeypointExtractor` 类，全量读取视频帧后并行提取关键点
+- 全量读取视频帧 → 并行关键点提取 → 预处理 → 集成预测
 - 支持连续导入新视频重复测试
 
 ### UI 操作

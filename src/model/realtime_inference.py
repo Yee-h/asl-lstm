@@ -32,7 +32,10 @@ from src.model.dataloader import (
     preprocess_keypoints,
     load_feature_stats,
 )
-from src.data_process.preprocess_wlasl import KeypointExtractor, PreprocessHelper
+from src.data_process.preprocess_wlasl import (
+    ParallelKeypointExtractor,
+    PreprocessHelper,
+)
 
 
 def load_chinese_font(size: int):
@@ -872,8 +875,8 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
         print(f"错误: {e}")
         return
 
-    # 初始化关键点提取器 (启用 VIDEO 模式以提升性能)
-    extractor = KeypointExtractor(use_video_mode=True)
+    # 初始化并行关键点提取器 (IMAGE 模式，多线程流水线)
+    parallel_extractor = ParallelKeypointExtractor()
 
     # 初始化预处理助手 (负责几何归一化)
     preprocess_helper = PreprocessHelper(max_frames=cfg.SEQUENCE.max_frames)
@@ -918,7 +921,7 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
 
     if not cap.isOpened():
         print(f"错误: 无法打开输入源 {cam_source}")
-        extractor.close()
+        parallel_extractor.close()
         return
 
     actual_fps = cap.get(cv2.CAP_PROP_FPS)
@@ -933,6 +936,8 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
     start_time = time.time()
     frame_count = 0
     status_text = "初始化..."
+    # 最新一帧已完成提取的关键点，用于骨骼叠加显示（比当前帧略有延迟）
+    latest_keypoints: np.ndarray | None = None
 
     try:
         with torch.no_grad():
@@ -947,41 +952,40 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
                     frame = cv2.flip(frame, 1)
 
                 frame_count += 1
-                timestamp_ms = int(time.time() * 1000)
 
-                # ---- 实时推理逻辑 ----
-                keypoints, valid_mask, has_hands = extractor.extract_frame_optimized(
-                    frame, timestamp_ms
-                )
+                # ── 流水线：提交当前帧到线程池 ──
+                parallel_extractor.submit_frame(frame)
 
-                if not has_hands:
-                    last_result = None
-                    status_text = "未检测到手部骨骼点信息"
-                    keypoints = None
-                else:
-                    valid_count = int(np.sum(valid_mask)) if valid_mask is not None else 0
-                    keypoints_valid = valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame
+                # ── 流水线：收集已完成的结果（按提交顺序） ──
+                completed_results = parallel_extractor.collect_completed()
+                for kp, valid_mask, has_hands in completed_results:
+                    if has_hands and kp is not None:
+                        valid_count = int(np.sum(valid_mask)) if valid_mask is not None else 0
+                        if valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame:
+                            frame_buffer.append(kp)
+                            latest_keypoints = kp
 
-                    if keypoints_valid and keypoints is not None:
-                        frame_buffer.append(keypoints)
+                # ── 推理逻辑 ──
+                if not completed_results or not any(r[2] for r in completed_results):
+                    # 最近收集到的帧都没检测到手部
+                    if not frame_buffer:
+                        last_result = None
+                        status_text = "未检测到手部骨骼点信息"
+                        latest_keypoints = None
 
-                        if frame_buffer and (frame_count % cfg.INFERENCE.inference_interval == 0):
-                            try:
-                                inputs, lengths = prepare_sequence(
-                                    frame_buffer, preprocess_helper, stats
-                                )
-                                inputs = inputs.to(device)
-                                lengths = lengths.to(device)
+                if frame_buffer and (frame_count % cfg.INFERENCE.inference_interval == 0):
+                    try:
+                        inputs, lengths = prepare_sequence(frame_buffer, preprocess_helper, stats)
+                        inputs = inputs.to(device)
+                        lengths = lengths.to(device)
 
-                                top_idx, top_prob = _ensemble_predict(models, inputs, lengths)
-                                pred_label = id_to_label.get(top_idx, str(top_idx))
-                                last_result = (pred_label, top_prob)
-                            except Exception:
-                                last_result = None
-                    else:
-                        status_text = "关键点数量不足"
+                        top_idx, top_prob = _ensemble_predict(models, inputs, lengths)
+                        pred_label = id_to_label.get(top_idx, str(top_idx))
+                        last_result = (pred_label, top_prob)
+                    except Exception:
+                        last_result = None
 
-                if has_hands and not last_result:
+                if frame_buffer and not last_result:
                     status_text = "正在分析..."
 
                 # FPS 估计
@@ -990,8 +994,8 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
 
                 # 绘制骨骼（仅实时模式且已开启）
                 display_frame = frame.copy()
-                if mouse_state.get("show_skeleton") and keypoints is not None:
-                    display_frame = draw_skeleton(display_frame, keypoints)
+                if mouse_state.get("show_skeleton") and latest_keypoints is not None:
+                    display_frame = draw_skeleton(display_frame, latest_keypoints)
 
                 overlay, exit_rect, skel_rect = draw_modern_ui(
                     display_frame,
@@ -1018,7 +1022,7 @@ def run_realtime_inference(camera_index: int | str | None = None) -> None:
                     break
     finally:
         cap.release()
-        extractor.close()
+        parallel_extractor.close()
         cv2.destroyAllWindows()
         print("已退出实时推理。")
 
@@ -1032,7 +1036,7 @@ def _load_shared_resources():
     供 run_launcher / run_realtime_inference / run_offline_inference_standalone 复用。
 
     Returns:
-        (device, id_to_label, models, extractor, preprocess_helper, stats, font_main, font_small)
+        (device, id_to_label, models, parallel_extractor, preprocess_helper, stats, font_main, font_small)
     """
     device = torch.device(
         "cuda" if torch.cuda.is_available() and cfg.TRAINING.device == "cuda" else "cpu"
@@ -1049,7 +1053,8 @@ def _load_shared_resources():
         print(f"错误: {e}")
         raise
 
-    extractor = KeypointExtractor(use_video_mode=True)
+    parallel_extractor = ParallelKeypointExtractor(cfg.INFERENCE.parallel_workers)
+    print(f"并行关键点提取器已创建（{parallel_extractor.num_workers} workers）")
     preprocess_helper = PreprocessHelper(max_frames=cfg.SEQUENCE.max_frames)
 
     stats = None
@@ -1063,7 +1068,16 @@ def _load_shared_resources():
     font_main = load_chinese_font(cfg.UI.font_size)
     font_small = load_chinese_font(cfg.UI.font_small_size)
 
-    return device, id_to_label, models, extractor, preprocess_helper, stats, font_main, font_small
+    return (
+        device,
+        id_to_label,
+        models,
+        parallel_extractor,
+        preprocess_helper,
+        stats,
+        font_main,
+        font_small,
+    )
 
 
 def _draw_launcher_ui(
@@ -1203,9 +1217,16 @@ def run_launcher() -> None:
     _configure_windows_console()
 
     try:
-        device, id_to_label, models, extractor, preprocess_helper, stats, font_main, font_small = (
-            _load_shared_resources()
-        )
+        (
+            device,
+            id_to_label,
+            models,
+            parallel_extractor,
+            preprocess_helper,
+            stats,
+            font_main,
+            font_small,
+        ) = _load_shared_resources()
     except FileNotFoundError:
         return
 
@@ -1260,7 +1281,7 @@ def run_launcher() -> None:
                 _run_realtime_in_window(
                     window_name=window_name,
                     models=models,
-                    extractor=extractor,
+                    parallel_extractor=parallel_extractor,
                     preprocess_helper=preprocess_helper,
                     stats=stats,
                     device=device,
@@ -1289,7 +1310,7 @@ def run_launcher() -> None:
                 cv2.resizeWindow(window_name, win_w, win_h)
                 cv2.setMouseCallback(window_name, _on_launcher_mouse, launcher_mouse)
     finally:
-        extractor.close()
+        parallel_extractor.close()
         cv2.destroyAllWindows()
         print("已退出。")
 
@@ -1297,7 +1318,7 @@ def run_launcher() -> None:
 def _run_realtime_in_window(
     window_name: str,
     models: List[torch.nn.Module],
-    extractor,
+    parallel_extractor: "ParallelKeypointExtractor",
     preprocess_helper,
     stats,
     device: torch.device,
@@ -1305,7 +1326,7 @@ def _run_realtime_in_window(
     font_main,
     font_small,
 ) -> None:
-    """在给定窗口中运行实时推理，退出后返回。"""
+    """在给定窗口中运行实时推理（并行关键点提取流水线），退出后返回。"""
     cam_source = cfg.INFERENCE.camera_index
     cap = cv2.VideoCapture(cam_source)
 
@@ -1337,6 +1358,8 @@ def _run_realtime_in_window(
     start_time = time.time()
     frame_count = 0
     status_text = "初始化..."
+    # 最新一帧已完成提取的关键点，用于骨骼叠加显示（比当前帧略有延迟）
+    latest_keypoints: np.ndarray | None = None
 
     try:
         with torch.no_grad():
@@ -1349,46 +1372,47 @@ def _run_realtime_in_window(
                     frame = cv2.flip(frame, 1)
 
                 frame_count += 1
-                timestamp_ms = int(time.time() * 1000)
 
-                keypoints, valid_mask, has_hands = extractor.extract_frame_optimized(
-                    frame, timestamp_ms
-                )
+                # ── 流水线：提交当前帧到线程池 ──
+                parallel_extractor.submit_frame(frame)
 
-                if not has_hands:
-                    last_result = None
-                    status_text = "未检测到手部骨骼点信息"
-                    keypoints = None
-                else:
-                    valid_count = int(np.sum(valid_mask)) if valid_mask is not None else 0
-                    keypoints_valid = valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame
+                # ── 流水线：收集已完成的结果（按提交顺序） ──
+                completed_results = parallel_extractor.collect_completed()
+                for kp, valid_mask, has_hands in completed_results:
+                    if has_hands and kp is not None:
+                        valid_count = int(np.sum(valid_mask)) if valid_mask is not None else 0
+                        if valid_count >= cfg.PREPROCESS.min_valid_keypoints_per_frame:
+                            frame_buffer.append(kp)
+                            latest_keypoints = kp
 
-                    if keypoints_valid and keypoints is not None:
-                        frame_buffer.append(keypoints)
-                        if frame_buffer and (frame_count % cfg.INFERENCE.inference_interval == 0):
-                            try:
-                                inputs, lengths = prepare_sequence(
-                                    frame_buffer, preprocess_helper, stats
-                                )
-                                inputs = inputs.to(device)
-                                lengths = lengths.to(device)
-                                top_idx, top_prob = _ensemble_predict(models, inputs, lengths)
-                                pred_label = id_to_label.get(top_idx, str(top_idx))
-                                last_result = (pred_label, top_prob)
-                            except Exception:
-                                last_result = None
-                    else:
-                        status_text = "关键点数量不足"
+                # ── 推理逻辑 ──
+                if not completed_results or not any(r[2] for r in completed_results):
+                    # 最近收集到的帧都没检测到手部
+                    if not frame_buffer:
+                        last_result = None
+                        status_text = "未检测到手部骨骼点信息"
+                        latest_keypoints = None
 
-                if has_hands and not last_result:
+                if frame_buffer and (frame_count % cfg.INFERENCE.inference_interval == 0):
+                    try:
+                        inputs, lengths = prepare_sequence(frame_buffer, preprocess_helper, stats)
+                        inputs = inputs.to(device)
+                        lengths = lengths.to(device)
+                        top_idx, top_prob = _ensemble_predict(models, inputs, lengths)
+                        pred_label = id_to_label.get(top_idx, str(top_idx))
+                        last_result = (pred_label, top_prob)
+                    except Exception:
+                        last_result = None
+
+                if frame_buffer and not last_result:
                     status_text = "正在分析..."
 
                 elapsed = time.time() - start_time
                 fps = frame_count / max(elapsed, 1e-5)
 
                 display_frame = frame.copy()
-                if mouse_state.get("show_skeleton") and keypoints is not None:
-                    display_frame = draw_skeleton(display_frame, keypoints)
+                if mouse_state.get("show_skeleton") and latest_keypoints is not None:
+                    display_frame = draw_skeleton(display_frame, latest_keypoints)
 
                 overlay, exit_rect, skel_rect = draw_modern_ui(
                     display_frame,

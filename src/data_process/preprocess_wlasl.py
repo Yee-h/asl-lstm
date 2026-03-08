@@ -33,11 +33,13 @@ import json
 import multiprocessing as mp_process
 import os
 import sys
+import threading
 import urllib.request
 import warnings
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from collections import deque
+from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, List, Optional, Tuple
 
 import cv2
 import h5py
@@ -468,6 +470,204 @@ class KeypointExtractor:
                     valid_mask[67 + i] = 1
 
         return keypoints, valid_mask
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 并行关键点提取器（线程池 + IMAGE 模式）
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class ParallelKeypointExtractor:
+    """
+    可复用的并行关键点提取器。
+
+    使用 ThreadPoolExecutor + 线程本地 IMAGE 模式 KeypointExtractor 实例，
+    在多个 worker 线程上并行提取帧的骨骼关键点。
+
+    提供两种使用模式：
+    - **批量模式** (``extract_batch``): 提交所有帧，阻塞等待全部完成。适合离线推理。
+    - **流式模式** (``submit_frame`` / ``collect_completed``): 逐帧提交、
+      按提交顺序取回已完成结果。适合实时推理的流水线场景。
+
+    内部每个 worker 线程通过 ``threading.local()`` 持有独立的
+    ``KeypointExtractor(use_video_mode=False)`` 实例，IMAGE 模式无状态，
+    可安全并行。
+
+    Args:
+        num_workers: 线程池 worker 数量。0 表示自动（``cpu_count - 1``），
+                     1 表示禁用并行（仍使用线程池但只有 1 个 worker）。
+    """
+
+    # ── 类型别名 ────────────────────────────────────────────────────────
+    FrameResult = Tuple[Optional[np.ndarray], Optional[np.ndarray], bool]
+    """(keypoints, valid_mask, has_hands)"""
+
+    def __init__(self, num_workers: int = 0) -> None:
+        self._num_workers = self._resolve_num_workers(num_workers)
+        self._tls = threading.local()
+        self._extractors: List[KeypointExtractor] = []
+        self._extractors_lock = threading.Lock()
+
+        # 流式模式的待处理 Future 队列（先入先出，保持帧顺序）
+        self._pending: deque[Future] = deque()
+
+        # 懒初始化线程池（首次提交时创建）
+        self._pool: Optional[ThreadPoolExecutor] = None
+        self._closed = False
+
+    # ── 公共接口 ────────────────────────────────────────────────────────
+
+    @property
+    def num_workers(self) -> int:
+        """返回实际使用的 worker 数量。"""
+        return self._num_workers
+
+    def extract_batch(
+        self,
+        frames: List[np.ndarray],
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+    ) -> List["ParallelKeypointExtractor.FrameResult"]:
+        """
+        批量提取所有帧的关键点（阻塞）。
+
+        按帧的原始顺序返回结果列表。适合离线推理一次性处理所有帧。
+
+        Args:
+            frames: BGR numpy 数组列表。
+            progress_callback: 可选回调 ``(completed, total)``，每完成一帧调用一次。
+
+        Returns:
+            与 *frames* 等长的列表，每个元素为
+            ``(keypoints, valid_mask, has_hands)``。
+        """
+        if self._closed:
+            raise RuntimeError("ParallelKeypointExtractor 已关闭")
+
+        pool = self._ensure_pool()
+        total = len(frames)
+        results: List[ParallelKeypointExtractor.FrameResult] = [(None, None, False)] * total
+
+        future_to_idx = {}
+        for idx, frame in enumerate(frames):
+            future = pool.submit(self._extract_one_frame, frame)
+            future_to_idx[future] = idx
+
+        completed = 0
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            try:
+                results[idx] = future.result()
+            except Exception:
+                results[idx] = (None, None, False)
+            completed += 1
+            if progress_callback is not None:
+                progress_callback(completed, total)
+
+        return results
+
+    def submit_frame(self, frame: np.ndarray) -> Future:
+        """
+        提交单帧进行异步提取（非阻塞）。
+
+        返回的 ``Future`` 会被自动追加到内部的有序待处理队列中，
+        可通过 ``collect_completed()`` 按提交顺序取回结果。
+
+        Args:
+            frame: BGR numpy 数组。
+
+        Returns:
+            ``concurrent.futures.Future`` 对象。
+        """
+        if self._closed:
+            raise RuntimeError("ParallelKeypointExtractor 已关闭")
+
+        pool = self._ensure_pool()
+        future = pool.submit(self._extract_one_frame, frame)
+        self._pending.append(future)
+        return future
+
+    def collect_completed(self) -> List["ParallelKeypointExtractor.FrameResult"]:
+        """
+        从待处理队列的头部取回连续已完成的结果。
+
+        按 **提交顺序** 返回：从队列头部开始，只要 Future 已完成就弹出并
+        收集结果；遇到第一个未完成的 Future 则停止（保证顺序性）。
+
+        Returns:
+            已完成的 ``(keypoints, valid_mask, has_hands)`` 结果列表（可能为空）。
+        """
+        results: List[ParallelKeypointExtractor.FrameResult] = []
+        while self._pending:
+            front = self._pending[0]
+            if not front.done():
+                break
+            self._pending.popleft()
+            try:
+                results.append(front.result())
+            except Exception:
+                results.append((None, None, False))
+        return results
+
+    def close(self) -> None:
+        """关闭线程池并释放所有 worker 创建的 KeypointExtractor 实例。"""
+        if self._closed:
+            return
+        self._closed = True
+
+        if self._pool is not None:
+            self._pool.shutdown(wait=True)
+            self._pool = None
+
+        with self._extractors_lock:
+            for ext in self._extractors:
+                try:
+                    ext.close()
+                except Exception:
+                    pass
+            self._extractors.clear()
+
+        self._pending.clear()
+
+    # ── 内部方法 ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _resolve_num_workers(n: int) -> int:
+        """解析实际 worker 数量。0 = 自动（cpu_count - 1）。"""
+        if n <= 0:
+            import multiprocessing
+
+            n = max(1, multiprocessing.cpu_count() - 1)
+        return max(1, n)
+
+    def _ensure_pool(self) -> ThreadPoolExecutor:
+        """懒初始化线程池。"""
+        if self._pool is None:
+            self._pool = ThreadPoolExecutor(
+                max_workers=self._num_workers,
+                initializer=self._pool_initializer,
+            )
+        return self._pool
+
+    def _pool_initializer(self) -> None:
+        """ThreadPoolExecutor initializer：在每个 worker 线程中创建 IMAGE 模式的 KeypointExtractor。"""
+        ext = KeypointExtractor(use_video_mode=False)
+        self._tls.extractor = ext
+        with self._extractors_lock:
+            self._extractors.append(ext)
+
+    def _extract_one_frame(self, frame: np.ndarray) -> "ParallelKeypointExtractor.FrameResult":
+        """
+        worker 函数：使用线程本地的 KeypointExtractor 提取单帧关键点。
+
+        Returns:
+            (keypoints, valid_mask, has_hands)
+        """
+        ext: KeypointExtractor = self._tls.extractor
+        kp, mask = ext.extract_frame(frame, timestamp_ms=None)
+        has_hands = False
+        if mask is not None:
+            has_hands = bool(np.sum(mask[25:67]) > 0)
+        return kp, mask, has_hands
 
 
 class PreprocessHelper:

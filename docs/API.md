@@ -113,13 +113,17 @@
 | `--camera` | int | `cfg.INFERENCE.camera_index` (0) | 摄像头索引 |
 | `--video` | str | 无 | 视频文件路径（替代摄像头） |
 
-- **实时优化**: 手部优先检测、每 3 帧推理一次、异步关键点提取队列。
+- **实时优化**: 
+  - **多线程并行关键点提取**：使用 `ParallelKeypointExtractor` 类，自动检测 CPU 核心数（`cpu_count - 1`），以流水线模式（`submit_frame()` + `collect_completed()`）并行提取 MediaPipe 关键点
+  - 手部优先检测、每 3 帧推理一次
+  - IMAGE 模式 MediaPipe（无状态，可并行）
 
 ### 2.8 离线推理入口
 
 - **脚本**: `src/model/offline_inference.py`
 - **作用**: 导入视频文件进行离线手语识别推理。
 - **调用方式**: 通过 `main.py` 启动器界面选择"离线推理"模式，或在代码中直接调用。
+- **并行优化**: 使用 `ParallelKeypointExtractor.extract_batch()` 多线程并行提取关键点，与实时推理共享同一实现。
 
 ### 2.9 数据检查与统计工具
 
@@ -132,6 +136,46 @@
 | `src/data_process/read_data_struct.py` | HDF5 内部结构查看 | 直接运行 |
 | `src/data_process/compare_hdf5_detail.py` | 两个 HDF5 文件逐字段对比 | 文件路径参数 |
 | `src/data_process/verify_consistency.py` | 跨 split 数据一致性验证 | 数据路径参数 |
+
+---
+
+## 3. 核心类 API
+
+### 3.1 ParallelKeypointExtractor
+
+**模块**: `src/data_process/preprocess_wlasl.py`
+
+多线程并行关键点提取器，供实时推理与离线推理共享使用。
+
+**初始化参数**:
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `num_workers` | int | 0 | 线程池工作线程数，0 表示自动检测（`cpu_count - 1`） |
+
+**核心方法**:
+
+| 方法 | 签名 | 用途 |
+|------|------|------|
+| `extract_batch()` | `(frames, progress_callback=None) → List[Tuple]` | 离线批量提取：提交所有帧，按顺序返回结果 |
+| `submit_frame()` | `(frame) → Future` | 实时流水线：提交单帧到线程池，非阻塞 |
+| `collect_completed()` | `() → List[Tuple]` | 实时流水线：收集已完成结果（按提交顺序） |
+| `close()` | `() → None` | 关闭线程池，释放所有 per-thread KeypointExtractor 实例 |
+
+**返回值结构**（`extract_batch` / `collect_completed`）:
+
+```python
+Tuple[np.ndarray, np.ndarray, bool]  # (keypoints, valid_mask, has_hands)
+# keypoints: (135, 2) float32，关键点坐标
+# valid_mask: (135,) bool，各关键点有效性
+# has_hands: bool，是否检测到手部
+```
+
+**内部实现**:
+- 使用 `ThreadPoolExecutor` 管理 worker 线程
+- 每个 worker 通过 `threading.local()` 持有独立的 `KeypointExtractor(use_video_mode=False)` 实例
+- MediaPipe 使用 IMAGE 模式（无状态），支持帧级并行
+- 延迟初始化：线程池在首次 `submit_frame` 时创建
 
 ---
 

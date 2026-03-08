@@ -122,8 +122,8 @@ asl-lstm/
 | `evaluate_lstm.py` | 测试集评估：加载 checkpoint，输出分类报告与混淆矩阵 |
 | `ensemble_evaluate.py` | 4 模型集成评估：Softmax 概率平均 |
 | `dataloader.py` | `ASLDataset` 数据集类：HDF5 读取、在线增强、Z-Score 标准化 |
-| `realtime_inference.py` | 实时推理：摄像头捕获 → 异步关键点提取 → 集成预测 → GUI 渲染（含启动器界面） |
-| `offline_inference.py` | 离线推理：视频文件 → 全量提取 → 集成预测 → GUI 渲染 |
+| `realtime_inference.py` | 实时推理：摄像头捕获 → 多线程并行关键点提取（`ParallelKeypointExtractor`） → 集成预测 → GUI 渲染（含启动器界面） |
+| `offline_inference.py` | 离线推理：视频文件 → 多线程并行关键点提取（`ParallelKeypointExtractor.extract_batch()`） → 集成预测 → GUI 渲染 |
 | `average_checkpoints.py` | 多 epoch checkpoint 参数平均 |
 | `checkpoint_utils.py` | Checkpoint 加载/保存工具函数 |
 | `training_utils.py` | EMA 管理器、早停、Warmup 调度器等训练辅助 |
@@ -165,6 +165,7 @@ UIConfig            → cfg.UI            界面配置
 ```
 
 实时推理额外优化：
+- **多线程并行关键点提取**：`ParallelKeypointExtractor` 类使用 `ThreadPoolExecutor`，自动检测 CPU 核心数（`cpu_count - 1`），以流水线模式（`submit_frame()` + `collect_completed()`）并行提取 MediaPipe 关键点
 - **手部优先检测**：先检测手部，有手才触发全身关键点提取
 - **每 3 帧推理一次**：平衡精度与实时性
-- **异步队列**：关键点提取与模型推理解耦
+- **IMAGE 模式 MediaPipe**：无状态，支持帧级并行（VIDEO 模式要求时间戳单调递增，无法并行）
