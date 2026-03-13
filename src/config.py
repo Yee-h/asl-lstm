@@ -586,7 +586,7 @@ INFERENCE = InferenceConfig(
     camera_index=0,  # 摄像头编号
     camera_width=640,  # 摄像头宽度
     camera_height=480,  # 摄像头高度
-    camera_fps=30,  # 摄像头帧率
+    camera_fps=60,  # 摄像头帧率
     inference_interval=3,  # 推理间隔
     parallel_workers=0,  # 0=自动（cpu_count-1），1=禁用并行
 )
