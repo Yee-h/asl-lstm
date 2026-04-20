@@ -34,6 +34,10 @@ public class KeypointExtractor {
     private FaceLandmarkerResult latestFaceResult;
     private volatile boolean frameConsumed = false;
 
+    private FaceLandmarkerResult cachedFaceResult = null;
+    private int faceSkipCounter = 0;
+    private static final int FACE_DETECT_INTERVAL = 3;
+
     private final Object resultLock = new Object();
 
     public interface ExtractorListener {
@@ -104,6 +108,7 @@ public class KeypointExtractor {
     public void detectAsync(Bitmap bitmap, long timestampMs) {
         if (poseLandmarker == null || handLandmarker == null || faceLandmarker == null) return;
 
+        bitmap = downsampleIfNeeded(bitmap);
         MPImage mpImage = new BitmapImageBuilder(bitmap).build();
         synchronized (resultLock) {
             frameConsumed = false;
@@ -116,8 +121,27 @@ public class KeypointExtractor {
 
         if (hasHandsLastFrame) {
             poseLandmarker.detectAsync(mpImage, timestampMs);
-            faceLandmarker.detectAsync(mpImage, timestampMs);
+
+            faceSkipCounter++;
+            if (faceSkipCounter >= FACE_DETECT_INTERVAL) {
+                faceLandmarker.detectAsync(mpImage, timestampMs);
+                faceSkipCounter = 0;
+            }
+        } else {
+            faceSkipCounter = FACE_DETECT_INTERVAL;
         }
+    }
+
+    private static final int DOWNSAMPLE_MAX_DIM = 480;
+
+    private Bitmap downsampleIfNeeded(Bitmap bitmap) {
+        int w = bitmap.getWidth();
+        int h = bitmap.getHeight();
+        if (w <= DOWNSAMPLE_MAX_DIM && h <= DOWNSAMPLE_MAX_DIM) return bitmap;
+        float scale = (float) DOWNSAMPLE_MAX_DIM / Math.max(w, h);
+        int newW = Math.round(w * scale);
+        int newH = Math.round(h * scale);
+        return Bitmap.createScaledBitmap(bitmap, newW, newH, true);
     }
 
     private void onPoseResult(PoseLandmarkerResult result, MPImage image) {
@@ -139,6 +163,9 @@ public class KeypointExtractor {
     private void onFaceResult(FaceLandmarkerResult result, MPImage image) {
         synchronized (resultLock) {
             latestFaceResult = result;
+            if (result.faceLandmarks() != null && !result.faceLandmarks().isEmpty()) {
+                cachedFaceResult = result;
+            }
         }
         tryEmit();
     }
@@ -182,6 +209,11 @@ public class KeypointExtractor {
             }
 
             if (poseResult == null) return;
+
+            if (faceResult == null && cachedFaceResult != null && hasHands) {
+                faceResult = cachedFaceResult;
+            }
+
             frameConsumed = true;
         }
 

@@ -175,7 +175,7 @@ public class RealtimeActivity extends AppCompatActivity implements KeypointExtra
     @Override
     public void onInferenceResult(String label, float confidence, long inferenceTime) {
         runOnUiThread(() -> {
-            tvResult.setText(label);
+            tvResult.setText(label.isEmpty() ? "..." : label);
             tvConfidence.setText(String.format("%.2f%%", confidence * 100));
             tvDelay.setText(inferenceTime + " ms");
         });

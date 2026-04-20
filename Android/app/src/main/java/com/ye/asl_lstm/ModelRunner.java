@@ -39,6 +39,7 @@ public class ModelRunner {
 
     private int noKeypointFrameCount = 0;
     private static final int NO_KEYPOINT_THRESHOLD = 15;
+    private static final float CONFIDENCE_THRESHOLD = 0.15f;
 
     private InferenceListener pendingListener = null;
 
@@ -137,7 +138,7 @@ public class ModelRunner {
             }
 
             long inferenceTime = SystemClock.uptimeMillis() - startTime;
-            String label = ASL_LABELS[maxIndex];
+            String label = maxProb >= CONFIDENCE_THRESHOLD ? ASL_LABELS[maxIndex] : "";
 
             if (listener != null) {
                 listener.onInferenceResult(label, maxProb, inferenceTime);
@@ -150,7 +151,7 @@ public class ModelRunner {
     }
 
     public void reset() {
-        pipeline.clearBuffer();
+        pipeline.resetAll();
         noKeypointFrameCount = 0;
     }
 }

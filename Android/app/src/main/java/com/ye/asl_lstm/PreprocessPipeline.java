@@ -26,6 +26,9 @@ public class PreprocessPipeline {
     private final List<float[]> shoulderDists = new ArrayList<>();
     private final List<float[]> torsoDists = new ArrayList<>();
 
+    private float initialScale = 0f;
+    private boolean initialScaleSet = false;
+
     private float[] lastFramePoints = null;
     private boolean emaInitialized = false;
     private float[][] emaState = null;
@@ -67,11 +70,17 @@ public class PreprocessPipeline {
         frameBuffer.clear();
         frameMasks.clear();
         lastFramePoints = null;
+        frameCount = 0;
+    }
+
+    public void resetAll() {
+        clearBuffer();
         emaInitialized = false;
         emaState = null;
         shoulderDists.clear();
         torsoDists.clear();
-        frameCount = 0;
+        initialScale = 0f;
+        initialScaleSet = false;
     }
 
     public ProcessedResult process() {
@@ -234,6 +243,10 @@ public class PreprocessPipeline {
                 float shoulderDist = (float) Math.sqrt((lsX - rsX) * (lsX - rsX) + (lsY - rsY) * (lsY - rsY));
                 if (shoulderDist > NORMALIZE_EPS) {
                     shoulderScales.add(shoulderDist);
+                    if (!initialScaleSet) {
+                        initialScale = shoulderDist;
+                        initialScaleSet = true;
+                    }
                 }
             } else if (t > 0) {
                 roots[t][0] = roots[t - 1][0];
@@ -259,7 +272,11 @@ public class PreprocessPipeline {
         // Compute reference scale
         float videoScale;
         if (shoulderDists.size() < SCALE_MIN_FRAMES) {
-            videoScale = 1.0f;
+            if (initialScaleSet && initialScale > NORMALIZE_EPS) {
+                videoScale = initialScale;
+            } else {
+                videoScale = 1.0f;
+            }
         } else {
             float shoulderMedian = median(shoulderDists);
             float torsoMedian = median(torsoDists);
