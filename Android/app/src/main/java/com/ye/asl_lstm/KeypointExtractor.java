@@ -7,6 +7,7 @@ import android.util.Log;
 import com.google.mediapipe.framework.image.BitmapImageBuilder;
 import com.google.mediapipe.framework.image.MPImage;
 import com.google.mediapipe.tasks.core.BaseOptions;
+import com.google.mediapipe.tasks.core.Delegate;
 import com.google.mediapipe.tasks.vision.core.RunningMode;
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker;
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult;
@@ -51,11 +52,22 @@ public class KeypointExtractor {
         setupLandmarkers();
     }
 
+    private boolean gpuEnabled = false;
+
+    private BaseOptions buildBaseOptions(String modelAssetPath, boolean tryGpu) {
+        BaseOptions.Builder builder = BaseOptions.builder().setModelAssetPath(modelAssetPath);
+        if (tryGpu) {
+            builder.setDelegate(Delegate.GPU);
+        }
+        return builder.build();
+    }
+
     private void setupLandmarkers() {
+        boolean tryGpu = true;
+        boolean anyGpuSuccess = false;
+
         try {
-            BaseOptions poseBaseOptions = BaseOptions.builder()
-                    .setModelAssetPath("pose_landmarker_heavy.task")
-                    .build();
+            BaseOptions poseBaseOptions = buildBaseOptions("pose_landmarker_heavy.task", tryGpu);
             PoseLandmarker.PoseLandmarkerOptions poseOptions = PoseLandmarker.PoseLandmarkerOptions.builder()
                     .setBaseOptions(poseBaseOptions)
                     .setRunningMode(RunningMode.LIVE_STREAM)
@@ -67,10 +79,31 @@ public class KeypointExtractor {
                     .setErrorListener(this::onPoseError)
                     .build();
             poseLandmarker = PoseLandmarker.createFromOptions(context, poseOptions);
+            anyGpuSuccess = true;
+            Log.i(TAG, "Pose Landmarker initialized with GPU");
+        } catch (Exception e) {
+            Log.w(TAG, "Pose Landmarker GPU init failed, falling back to CPU: " + e.getMessage());
+            try {
+                BaseOptions poseBaseOptions = buildBaseOptions("pose_landmarker_heavy.task", false);
+                PoseLandmarker.PoseLandmarkerOptions poseOptions = PoseLandmarker.PoseLandmarkerOptions.builder()
+                        .setBaseOptions(poseBaseOptions)
+                        .setRunningMode(RunningMode.LIVE_STREAM)
+                        .setNumPoses(1)
+                        .setMinPoseDetectionConfidence(0.5f)
+                        .setMinPosePresenceConfidence(0.5f)
+                        .setMinTrackingConfidence(0.5f)
+                        .setResultListener(this::onPoseResult)
+                        .setErrorListener(this::onPoseError)
+                        .build();
+                poseLandmarker = PoseLandmarker.createFromOptions(context, poseOptions);
+                Log.i(TAG, "Pose Landmarker initialized with CPU fallback");
+            } catch (Exception e2) {
+                Log.e(TAG, "Pose Landmarker init failed (CPU fallback): " + e2.getMessage(), e2);
+            }
+        }
 
-            BaseOptions handBaseOptions = BaseOptions.builder()
-                    .setModelAssetPath("hand_landmarker.task")
-                    .build();
+        try {
+            BaseOptions handBaseOptions = buildBaseOptions("hand_landmarker.task", tryGpu);
             HandLandmarker.HandLandmarkerOptions handOptions = HandLandmarker.HandLandmarkerOptions.builder()
                     .setBaseOptions(handBaseOptions)
                     .setRunningMode(RunningMode.LIVE_STREAM)
@@ -82,10 +115,31 @@ public class KeypointExtractor {
                     .setErrorListener(this::onHandError)
                     .build();
             handLandmarker = HandLandmarker.createFromOptions(context, handOptions);
+            anyGpuSuccess = true;
+            Log.i(TAG, "Hand Landmarker initialized with GPU");
+        } catch (Exception e) {
+            Log.w(TAG, "Hand Landmarker GPU init failed, falling back to CPU: " + e.getMessage());
+            try {
+                BaseOptions handBaseOptions = buildBaseOptions("hand_landmarker.task", false);
+                HandLandmarker.HandLandmarkerOptions handOptions = HandLandmarker.HandLandmarkerOptions.builder()
+                        .setBaseOptions(handBaseOptions)
+                        .setRunningMode(RunningMode.LIVE_STREAM)
+                        .setNumHands(2)
+                        .setMinHandDetectionConfidence(0.5f)
+                        .setMinHandPresenceConfidence(0.5f)
+                        .setMinTrackingConfidence(0.5f)
+                        .setResultListener(this::onHandResult)
+                        .setErrorListener(this::onHandError)
+                        .build();
+                handLandmarker = HandLandmarker.createFromOptions(context, handOptions);
+                Log.i(TAG, "Hand Landmarker initialized with CPU fallback");
+            } catch (Exception e2) {
+                Log.e(TAG, "Hand Landmarker init failed (CPU fallback): " + e2.getMessage(), e2);
+            }
+        }
 
-            BaseOptions faceBaseOptions = BaseOptions.builder()
-                    .setModelAssetPath("face_landmarker.task")
-                    .build();
+        try {
+            BaseOptions faceBaseOptions = buildBaseOptions("face_landmarker.task", tryGpu);
             FaceLandmarker.FaceLandmarkerOptions faceOptions = FaceLandmarker.FaceLandmarkerOptions.builder()
                     .setBaseOptions(faceBaseOptions)
                     .setRunningMode(RunningMode.LIVE_STREAM)
@@ -97,11 +151,37 @@ public class KeypointExtractor {
                     .setErrorListener(this::onFaceError)
                     .build();
             faceLandmarker = FaceLandmarker.createFromOptions(context, faceOptions);
-
-            Log.i(TAG, "All MediaPipe landmarkers initialized successfully");
+            anyGpuSuccess = true;
+            Log.i(TAG, "Face Landmarker initialized with GPU");
         } catch (Exception e) {
-            Log.e(TAG, "Failed to initialize landmarkers: " + e.getMessage(), e);
-            if (listener != null) listener.onError("MediaPipe Init Error: " + e.getMessage());
+            Log.w(TAG, "Face Landmarker GPU init failed, falling back to CPU: " + e.getMessage());
+            try {
+                BaseOptions faceBaseOptions = buildBaseOptions("face_landmarker.task", false);
+                FaceLandmarker.FaceLandmarkerOptions faceOptions = FaceLandmarker.FaceLandmarkerOptions.builder()
+                        .setBaseOptions(faceBaseOptions)
+                        .setRunningMode(RunningMode.LIVE_STREAM)
+                        .setNumFaces(1)
+                        .setMinFaceDetectionConfidence(0.5f)
+                        .setMinFacePresenceConfidence(0.5f)
+                        .setMinTrackingConfidence(0.5f)
+                        .setResultListener(this::onFaceResult)
+                        .setErrorListener(this::onFaceError)
+                        .build();
+                faceLandmarker = FaceLandmarker.createFromOptions(context, faceOptions);
+                Log.i(TAG, "Face Landmarker initialized with CPU fallback");
+            } catch (Exception e2) {
+                Log.e(TAG, "Face Landmarker init failed (CPU fallback): " + e2.getMessage(), e2);
+            }
+        }
+
+        gpuEnabled = anyGpuSuccess;
+
+        if (poseLandmarker == null || handLandmarker == null || faceLandmarker == null) {
+            String msg = "MediaPipe Init Error: one or more landmarkers failed";
+            Log.e(TAG, msg);
+            if (listener != null) listener.onError(msg);
+        } else {
+            Log.i(TAG, "All MediaPipe landmarkers initialized (GPU=" + gpuEnabled + ")");
         }
     }
 
