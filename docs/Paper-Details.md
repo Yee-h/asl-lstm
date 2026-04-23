@@ -506,15 +506,58 @@ flowchart LR
 
 ### 9.1 Android 技术栈与架构设计
 
-| 技术组件 | 版本 | 用途 |
-|---------|------|------|
-| Android SDK | API 36 (Android 16) | 目标平台与编译 SDK |
-| minSdk | API 36 | 最低支持版本 |
-| Java | 11 | 开发语言 |
-| CameraX | 1.3.1 | 相机预览与图像流捕获 |
-| MediaPipe Tasks Vision | 0.10.14 | 端侧骨骼关键点提取 |
-| PyTorch Mobile Lite | 1.13.0 | 端侧 LSTM 模型推理引擎 |
+#### 9.1.1 开发环境与构建系统
+
+| 组件 | 版本 | 说明 |
+|------|------|------|
 | Android Gradle Plugin | 9.1.1 | 构建系统 |
+| compileSdk | API 36 (Android 16) | 编译 SDK |
+| minSdk | API 36 | 最低支持版本 |
+| targetSdk | API 36 | 目标 SDK |
+| Java | 11 | 开发语言 |
+| Gradle | 8.x（由 AGP 管理） | 构建工具 |
+
+#### 9.1.2 核心依赖库
+
+| 技术组件 | 版本 | 用途 | 关键配置 |
+|---------|------|------|---------|
+| CameraX | 1.3.1 | 相机预览与图像流捕获 | 前摄像头、RGBA_8888、STRATEGY_KEEP_ONLY_LATEST |
+| MediaPipe Tasks Vision | 0.10.14 | 端侧骨骼关键点提取 | LIVE_STREAM模式、检测阈值0.5 |
+| PyTorch Mobile Lite | 1.13.0 | 端侧 LSTM 模型推理引擎 | Lite Interpreter格式、4.3MB |
+| AndroidX AppCompat | 1.6.1 | 向下兼容支持 | AppCompatActivity |
+| Material Design | 1.10.0 | UI 组件库 | MaterialButton、MaterialCardView |
+| ConstraintLayout | 2.1.4 | 约束布局 | 复杂 UI 结构 |
+
+#### 9.1.3 项目结构
+
+```
+Android/
+├── app/
+│   ├── src/main/
+│   │   ├── java/com/ye/asl_lstm/
+│   │   │   ├── MainActivity.java              # 主活动（入口）
+│   │   │   ├── RealtimeActivity.java          # 实时推理活动
+│   │   │   ├── OfflineActivity.java           # 离线推理活动
+│   │   │   ├── KeypointExtractor.java         # MediaPipe 关键点提取器
+│   │   │   ├── PreprocessPipeline.java        # 数据预处理管道
+│   │   │   ├── ModelRunner.java               # PyTorch 模型推理器
+│   │   │   └── SkeletonOverlayView.java       # 骨骼叠加可视化 View
+│   │   ├── assets/
+│   │   │   ├── best_model.ptl                 # PyTorch Lite 模型 (~4.3MB)
+│   │   │   ├── pose_landmarker_heavy.task     # MediaPipe Pose 模型 (~29.9MB)
+│   │   │   ├── hand_landmarker.task           # MediaPipe Hand 模型 (~7.6MB)
+│   │   │   └── face_landmarker.task           # MediaPipe Face 模型 (~3.7MB)
+│   │   ├── res/
+│   │   │   ├── layout/
+│   │   │   │   ├── activity_realtime.xml      # 实时模式布局
+│   │   │   │   └── activity_offline.xml       # 离线模式布局
+│   │   │   └── ...
+│   │   └── AndroidManifest.xml                # 应用清单
+│   └── build.gradle.kts                       # 模块构建配置
+├── gradle/
+│   └── libs.versions.toml                     # 依赖版本目录
+└── model/                                     # PC 端原始模型
+```
 
 ### 9.2 模型轻量化与端侧导出
 

@@ -56,69 +56,177 @@
 
 #### CameraX 相机框架（版本 1.3.1）
 
+**Gradle 依赖**：
 ```kotlin
-implementation(libs.camerax.core)
-implementation(libs.camerax.camera2)
-implementation(libs.camerax.lifecycle)
-implementation(libs.camerax.view)
+implementation(libs.camerax.core)      // 核心 API
+implementation(libs.camerax.camera2)   // Camera2 实现
+implementation(libs.camerax.lifecycle) // 生命周期绑定
+implementation(libs.camerax.view)      // PreviewView
 ```
 
-**用途**：
-- `camera-core`：核心 API 与用例管理
-- `camera-camera2`：基于 Camera2 API 的底层实现
-- `camera-lifecycle`：与 Android 生命周期绑定
-- `camera-view`：`PreviewView` 相机预览组件
-
 **关键配置**：
-- 输出格式：`OUTPUT_IMAGE_FORMAT_RGBA_8888`
+- 输出格式：`OUTPUT_IMAGE_FORMAT_RGBA_8888`（MediaPipe 兼容格式）
 - 背压策略：`STRATEGY_KEEP_ONLY_LATEST`（丢弃旧帧，保持实时性）
-- 相机选择：`DEFAULT_FRONT_CAMERA`（前摄像头）
+- 相机选择：`DEFAULT_FRONT_CAMERA`（前摄像头，符合自拍习惯）
+- 缓冲区大小：1（减少延迟）
 
 #### MediaPipe Tasks Vision（版本 0.10.14）
 
+**Gradle 依赖**：
 ```kotlin
 implementation(libs.mediapipe.tasks.vision)
 ```
 
-**用途**：端侧骨骼关键点提取
-
 **包含模型**（存放于 `app/src/main/assets/`）：
-- `pose_landmarker_heavy.task`（~29.9 MB）：25 个姿态关键点
+- `pose_landmarker_heavy.task`（~29.9 MB）：33 → 25 个姿态关键点
 - `hand_landmarker.task`（~7.6 MB）：21 × 2 = 42 个手部关键点
-- `face_landmarker.task`（~3.7 MB）：68 个面部关键点
+- `face_landmarker.task`（~3.7 MB）：478 → 68 个面部关键点
+- **合计**：~41.2 MB
 
-**检测模式**：`RunningMode.LIVE_STREAM`（异步流式推理）
+**检测模式**：`RunningMode.LIVE_STREAM`（异步流式推理，通过回调获取结果）
 
-**置信度阈值**：
-- Pose：Detection 0.5, Presence 0.5, Tracking 0.5
-- Hand：Detection 0.5, Presence 0.5, Tracking 0.5
-- Face：Detection 0.5, Presence 0.5, Tracking 0.5
+**置信度阈值**（三个检测器统一）：
+- 检测置信度：0.5
+- 存在置信度：0.5
+- 跟踪置信度：0.5
+
+**GPU/CPU 自适应回退**：
+```java
+try {
+    // 优先尝试 GPU Delegate
+    BaseOptions.builder().setDelegate(Delegate.GPU).build();
+} catch (Exception e) {
+    // 降级至 CPU
+    BaseOptions.builder().build(); // 无 Delegate = CPU
+}
+```
 
 #### PyTorch Mobile Lite（版本 1.13.0）
 
+**Gradle 依赖**：
 ```kotlin
 implementation(libs.pytorch.android.lite)
 implementation(libs.pytorch.android.torchvision.lite)
 ```
 
-**用途**：端侧 LSTM 模型推理
-
-**模型文件**：`app/src/main/assets/best_model.ptl`（~4.3 MB）
+**模型文件**：`app/src/main/assets/best_model.ptl`（~4.3 MB，float32）
 
 **推理接口**：
-- `LiteModuleLoader.load()`：加载优化后的模型
-- `module.forward()`：执行前向传播
-- 输入：`Tensor[1, 90, 540]` + `Tensor[1]`（有效长度）
-- 输出：`Tensor[1, 100]`（Logits）
+- `LiteModuleLoader.load(modelPath)`：加载 Lite Interpreter 格式模型
+- `module.forward(IValue.from(inputTensor), IValue.from(lengthTensor))`：执行前向传播
+- 输入：`Tensor[1, 90, 540]`（特征） + `Tensor[1]`（有效长度）
+- 输出：`Tensor[1, 100]`（100 类 Logits）
+
+**模型加载流程**：
+```java
+// 1. 从 assets 复制到私有目录（避免重复 I/O）
+File modelFile = copyAssetToFile("best_model.ptl");
+// 2. 加载模型
+Module module = LiteModuleLoader.load(modelFile.getAbsolutePath());
+```
 
 #### AndroidX 与 Material Design
 
 ```kotlin
-implementation(libs.appcompat)      // AppCompatActivity
-implementation(libs.material)       // Material Design 组件
-implementation(libs.activity)       // Activity 扩展
-implementation(libs.constraintlayout) // 约束布局
+implementation(libs.appcompat)        // AppCompatActivity 向下兼容
+implementation(libs.material)         // MaterialButton, MaterialCardView
+implementation(libs.activity)         // Activity Result API
+implementation(libs.constraintlayout) // 复杂 UI 约束布局
 ```
+
+### 2.3 技术栈版本汇总
+
+| 组件 | 版本 | 文件来源 |
+|------|------|---------|
+| CameraX | 1.3.1 | `gradle/libs.versions.toml` |
+| MediaPipe | 0.10.14 | `gradle/libs.versions.toml` |
+| PyTorch | 1.13.0 | `gradle/libs.versions.toml` |
+| AGP | 9.1.1 | `gradle/libs.versions.toml` |
+| AppCompat | 1.6.1 | `gradle/libs.versions.toml` |
+| Material | 1.10.0 | `gradle/libs.versions.toml` |
+| ConstraintLayout | 2.1.4 | `gradle/libs.versions.toml` |
+
+**关键配置**：
+- 输出格式：`OUTPUT_IMAGE_FORMAT_RGBA_8888`（MediaPipe 兼容格式）
+- 背压策略：`STRATEGY_KEEP_ONLY_LATEST`（丢弃旧帧，保持实时性）
+- 相机选择：`DEFAULT_FRONT_CAMERA`（前摄像头，符合自拍习惯）
+- 缓冲区大小：1（减少延迟）
+
+#### MediaPipe Tasks Vision（版本 0.10.14）
+
+**Gradle 依赖**：
+```kotlin
+implementation(libs.mediapipe.tasks.vision)
+```
+
+**包含模型**（存放于 `app/src/main/assets/`）：
+- `pose_landmarker_heavy.task`（~29.9 MB）：33 → 25 个姿态关键点
+- `hand_landmarker.task`（~7.6 MB）：21 × 2 = 42 个手部关键点
+- `face_landmarker.task`（~3.7 MB）：478 → 68 个面部关键点
+- **合计**：~41.2 MB
+
+**检测模式**：`RunningMode.LIVE_STREAM`（异步流式推理，通过回调获取结果）
+
+**置信度阈值**（三个检测器统一）：
+- 检测置信度：0.5
+- 存在置信度：0.5
+- 跟踪置信度：0.5
+
+**GPU/CPU 自适应回退**：
+```java
+try {
+    // 优先尝试 GPU Delegate
+    BaseOptions.builder().setDelegate(Delegate.GPU).build();
+} catch (Exception e) {
+    // 降级至 CPU
+    BaseOptions.builder().build(); // 无 Delegate = CPU
+}
+```
+
+#### PyTorch Mobile Lite（版本 1.13.0）
+
+**Gradle 依赖**：
+```kotlin
+implementation(libs.pytorch.android.lite)
+implementation(libs.pytorch.android.torchvision.lite)
+```
+
+**模型文件**：`app/src/main/assets/best_model.ptl`（~4.3 MB，float32）
+
+**推理接口**：
+- `LiteModuleLoader.load(modelPath)`：加载 Lite Interpreter 格式模型
+- `module.forward(IValue.from(inputTensor), IValue.from(lengthTensor))`：执行前向传播
+- 输入：`Tensor[1, 90, 540]`（特征） + `Tensor[1]`（有效长度）
+- 输出：`Tensor[1, 100]`（100 类 Logits）
+
+**模型加载流程**：
+```java
+// 1. 从 assets 复制到私有目录（避免重复 I/O）
+File modelFile = copyAssetToFile("best_model.ptl");
+// 2. 加载模型
+Module module = LiteModuleLoader.load(modelFile.getAbsolutePath());
+```
+
+#### AndroidX 与 Material Design
+
+```kotlin
+implementation(libs.appcompat)        // AppCompatActivity 向下兼容
+implementation(libs.material)         // MaterialButton, MaterialCardView
+implementation(libs.activity)         // Activity Result API
+implementation(libs.constraintlayout) // 复杂 UI 约束布局
+```
+
+### 2.3 技术栈版本汇总
+
+| 组件 | 版本 | 文件来源 |
+|------|------|---------|
+| CameraX | 1.3.1 | `gradle/libs.versions.toml` |
+| MediaPipe | 0.10.14 | `gradle/libs.versions.toml` |
+| PyTorch | 1.13.0 | `gradle/libs.versions.toml` |
+| AGP | 9.1.1 | `gradle/libs.versions.toml` |
+| AppCompat | 1.6.1 | `gradle/libs.versions.toml` |
+| Material | 1.10.0 | `gradle/libs.versions.toml` |
+| ConstraintLayout | 2.1.4 | `gradle/libs.versions.toml` |
 
 ---
 
